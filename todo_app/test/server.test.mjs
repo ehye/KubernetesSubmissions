@@ -18,7 +18,7 @@ test('rejects invalid PORT values', () => {
   }
 });
 
-test('serves the Todo app response over HTTP', { timeout: 5000 }, async t => {
+test('serves an HTML page for GET / and preserves other responses', { timeout: 5000 }, async t => {
   const server = createApp();
   t.after(() => {
     server.closeAllConnections();
@@ -28,8 +28,21 @@ test('serves the Todo app response over HTTP', { timeout: 5000 }, async t => {
   await once(server, 'listening');
   const response = await fetch(`http://127.0.0.1:${server.address().port}/`);
   assert.equal(response.status, 200);
-  assert.equal(response.headers.get('content-type'), 'text/plain; charset=utf-8');
-  assert.equal(await response.text(), 'Todo app\n');
+  assert.equal(response.headers.get('content-type'), 'text/html; charset=utf-8');
+  const html = await response.text();
+  assert.match(html, /^<!DOCTYPE html>/);
+  assert.match(html, /<title>Todo app<\/title>/);
+  assert.match(html, /<h1>Todo app<\/h1>/);
+
+  const rootWithQuery = await fetch(`http://127.0.0.1:${server.address().port}/?example=1`);
+  assert.equal(await rootWithQuery.text(), html);
+
+  for (const [path, method] of [['/unknown', 'GET'], ['/', 'POST']]) {
+    const other = await fetch(`http://127.0.0.1:${server.address().port}${path}`, { method });
+    assert.equal(other.status, 200);
+    assert.equal(other.headers.get('content-type'), 'text/plain; charset=utf-8');
+    assert.equal(await other.text(), 'Todo app\n');
+  }
 });
 
 for (const signal of ['SIGTERM', 'SIGINT']) {
@@ -49,7 +62,8 @@ for (const signal of ['SIGTERM', 'SIGINT']) {
     assert.ok(match, `Unexpected startup message: ${line}`);
     assert.ok(Number(match[1]) > 0);
     const response = await fetch(`http://127.0.0.1:${match[1]}/`);
-    assert.equal(await response.text(), 'Todo app\n');
+    assert.equal(response.headers.get('content-type'), 'text/html; charset=utf-8');
+    assert.match(await response.text(), /<h1>Todo app<\/h1>/);
     const exited = once(child, 'exit');
     child.kill(signal);
     assert.deepEqual(await exited, [0, null]);
