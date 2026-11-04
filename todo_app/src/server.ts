@@ -11,7 +11,24 @@ export function parsePort(value: string | undefined): number {
 }
 
 export function createApp() {
-  return createServer((_request, response) => {
+  return createServer((request, response) => {
+    if (request.method === 'GET' && request.url?.split('?')[0] === '/') {
+      response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      response.end(`<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Todo app</title>
+  </head>
+  <body>
+    <h1>Todo app</h1>
+  </body>
+</html>
+`);
+      return;
+    }
+
     response.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
     response.end('Todo app\n');
   });
