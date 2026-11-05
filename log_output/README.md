@@ -39,11 +39,12 @@ kubectl rollout status deployment/randomstring-dep
 kubectl logs -f deployment/randomstring-dep
 ```
 
-The Ingress uses Traefik (included by default with k3s). Browser access requires
-the cluster's load balancer port 80 to be published to your host. For a **new**
-cluster, an example mapping is `-p "8080:80@loadbalancer"` with `k3d cluster create`.
-With that mapping, open `http://localhost:8080/`. Do not recreate an existing
-cluster just to follow this example; first check its existing port mappings.
+Log output now shares an Ingress with Ping-pong on the dedicated Traefik
+`log-output` entrypoint. Follow the [Ping-pong deployment guide](../ping_pong/README.md)
+to configure this listener and deploy both applications. The existing cluster
+maps host port `8082` to load balancer port `30080`; with that configuration,
+open `http://127.0.0.1:8082/` for Log output or
+`http://127.0.0.1:8082/pingpong` for Ping-pong. Todo remains on port `8081`.
 
 Traffic flows through Ingress `/` to `log-output-svc:2345`, then to the app on
 port `3000`. No NodePort Service is needed.
