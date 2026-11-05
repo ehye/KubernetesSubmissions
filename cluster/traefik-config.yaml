@@ -1,0 +1,14 @@
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    ports:
+      log-output:
+        port: 8001
+        expose:
+          default: true
+        exposedPort: 30080
+        protocol: TCP
