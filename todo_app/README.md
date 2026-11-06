@@ -40,8 +40,8 @@ that cluster. First prepare the existing PV/PVC and its directory using the
 [storage guide](../storage/README.md).
 
 ```sh
-docker build -t todo-app:1.13 ./todo_app
-k3d image import todo-app:1.13 -c <cluster-name>
+docker build -t todo-app:2.1 ./todo_app
+k3d image import todo-app:2.1 -c <cluster-name>
 kubectl -n default apply -f todo_app/manifests/
 kubectl -n default rollout status deployment/todo-app-dep
 kubectl -n default logs -f deployment/todo-app-dep

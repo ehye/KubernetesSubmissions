@@ -2,7 +2,7 @@ import { createApp, parsePort } from './server.js';
 
 try {
   const port = parsePort(process.env.PORT);
-  const server = createApp(process.env.COUNTER_FILE ?? './data/pingpong-count.txt');
+  const server = createApp();
 
   server.on('error', (error: Error) => {
     console.error(`Server failed: ${error.message}`);
