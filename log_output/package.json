@@ -9,8 +9,10 @@
   },
   "scripts": {
     "dev": "node --watch src/index.ts",
+    "dev:writer": "node --watch src/writer.ts",
     "build": "tsc",
     "start": "node dist/index.js",
+    "start:writer": "node dist/writer.js",
     "test": "pnpm build && node --test"
   },
   "devDependencies": {

@@ -1,30 +1,44 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
-import { createApp, createLogger } from '../dist/server.js';
+import { createLogger } from '../dist/logger.js';
+import { createApp } from '../dist/server.js';
 
 const logPattern = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z): ([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/;
 
-async function startLogger(t, lineCount) {
-  const child = spawn(process.execPath, ['dist/index.js'], {
+async function temporaryFile(t) {
+  const directory = await mkdtemp(join(tmpdir(), 'log-output-test-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  return join(directory, 'log.txt');
+}
+
+async function startProcess(t, entry, filePath, lineCount = 1) {
+  const child = spawn(process.execPath, [`dist/${entry}.js`], {
     cwd: new URL('../', import.meta.url),
-    env: { ...process.env, PORT: '0' },
+    env: { ...process.env, LOG_FILE: filePath, PORT: '0' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  t.after(() => {
-    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+  t.after(async () => {
+    if (child.exitCode === null && child.signalCode === null) {
+      const exited = once(child, 'exit');
+      child.kill('SIGKILL');
+      await exited;
+    }
   });
 
   const lines = await new Promise((resolve, reject) => {
     let output = '';
     let errors = '';
-    const timeout = setTimeout(() => reject(new Error('Timed out waiting for logs')), 12_000);
+    const timeout = setTimeout(() => reject(new Error(`Timed out waiting for ${entry}`)), 12_000);
     child.stderr.setEncoding('utf8').on('data', chunk => { errors += chunk; });
     child.once('error', error => { clearTimeout(timeout); reject(error); });
     child.once('exit', code => {
       clearTimeout(timeout);
-      reject(new Error(`Logger exited early (${code}): ${errors}`));
+      reject(new Error(`${entry} exited early (${code}): ${errors}`));
     });
     child.stdout.setEncoding('utf8').on('data', chunk => {
       output += chunk;
@@ -39,66 +53,127 @@ async function startLogger(t, lineCount) {
   return { child, lines };
 }
 
-async function stopLogger(child, signal) {
+async function stopProcess(child, signal = 'SIGTERM') {
   const exited = once(child, 'exit');
   child.kill(signal);
   assert.deepEqual(await exited, [0, null]);
 }
 
-test('logs the same UUID every five seconds and shuts down on SIGTERM', { timeout: 15_000 }, async t => {
-  const { child, lines } = await startLogger(t, 2);
+async function startReader(t, filePath) {
+  const reader = await startProcess(t, 'index', filePath);
+  const match = /^Server started in port (\d+)$/.exec(reader.lines[0]);
+  assert.ok(match, reader.lines[0]);
+  return { ...reader, url: `http://127.0.0.1:${match[1]}/` };
+}
+
+test('writer replaces the file every five seconds with the same UUID', { timeout: 15_000 }, async t => {
+  const filePath = await temporaryFile(t);
+  const { child, lines } = await startProcess(t, 'writer', filePath, 2);
   const matches = lines.map(line => {
     const match = logPattern.exec(line);
-    assert.ok(match, `Unexpected log format: ${line}`);
+    assert.ok(match, line);
     return match;
   });
   assert.equal(matches[0][2], matches[1][2]);
   const elapsed = Date.parse(matches[1][1]) - Date.parse(matches[0][1]);
   assert.ok(elapsed >= 4_900 && elapsed < 7_000, `Unexpected interval: ${elapsed}ms`);
-  await stopLogger(child, 'SIGTERM');
+  assert.equal(await readFile(filePath, 'utf8'), `${lines[1]}\n`);
+  await stopProcess(child);
 });
 
-test('generates a fresh UUID on restart and shuts down on SIGINT', { timeout: 15_000 }, async t => {
-  const first = await startLogger(t, 1);
-  await stopLogger(first.child, 'SIGINT');
-  const second = await startLogger(t, 1);
-  await stopLogger(second.child, 'SIGINT');
-  const firstMatch = logPattern.exec(first.lines[0]);
-  const secondMatch = logPattern.exec(second.lines[0]);
-  assert.ok(firstMatch);
-  assert.ok(secondMatch);
-  assert.notEqual(firstMatch[2], secondMatch[2]);
+test('writer restart generates a new UUID and shuts down on SIGINT', { timeout: 15_000 }, async t => {
+  const filePath = await temporaryFile(t);
+  const first = await startProcess(t, 'writer', filePath);
+  await stopProcess(first.child, 'SIGINT');
+  const second = await startProcess(t, 'writer', filePath);
+  await stopProcess(second.child, 'SIGINT');
+  assert.notEqual(logPattern.exec(first.lines[0])[2], logPattern.exec(second.lines[0])[2]);
+  assert.equal(await readFile(filePath, 'utf8'), `${second.lines[0]}\n`);
 });
 
-test('GET / returns the latest logged status without changing it', { timeout: 5000 }, async t => {
-  const logger = createLogger();
-  const output = t.mock.method(console, 'log', () => {});
-  t.mock.method(Date.prototype, 'toISOString', () => '2026-11-05T12:00:00.000Z');
-  logger.log();
-  const firstStatus = output.mock.calls.at(-1).arguments[0];
-  const server = createApp(logger.getStatus);
-  t.after(() => {
-    server.closeAllConnections();
-    server.close();
-  });
-  server.listen(0, '0.0.0.0');
+test('reader returns 503 before the first write, then reads only the latest line', { timeout: 5000 }, async t => {
+  const filePath = await temporaryFile(t);
+  const server = createApp(filePath);
+  t.after(() => { server.closeAllConnections(); server.close(); });
+  server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const url = `http://127.0.0.1:${server.address().port}/`;
 
+  const missing = await fetch(url);
+  assert.equal(missing.status, 503);
+  assert.equal(missing.headers.get('retry-after'), '1');
+  await missing.text();
+  // The reader must not create the writer's file.
+  await assert.rejects(readFile(filePath), { code: 'ENOENT' });
+
+  let timestamp = '2026-11-06T12:00:00.000Z';
+  t.mock.method(Date.prototype, 'toISOString', () => timestamp);
+  const output = t.mock.method(console, 'log', () => {});
+  const logValue = createLogger(filePath);
+  await logValue();
+  const first = await readFile(filePath, 'utf8');
   for (let i = 0; i < 2; i++) {
     const response = await fetch(url);
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('content-type'), 'text/plain; charset=utf-8');
     assert.equal(response.headers.get('cache-control'), 'no-store');
-    assert.equal(await response.text(), `${firstStatus}\n`);
+    assert.equal(await response.text(), first);
   }
   assert.equal(output.mock.callCount(), 1);
 
-  t.mock.method(Date.prototype, 'toISOString', () => '2026-11-05T12:00:05.000Z');
-  logger.log();
-  const nextStatus = output.mock.calls.at(-1).arguments[0];
-  assert.notEqual(firstStatus, nextStatus);
-  assert.equal(logPattern.exec(firstStatus)[2], logPattern.exec(nextStatus)[2]);
-  const response = await fetch(url);
-  assert.equal(await response.text(), `${nextStatus}\n`);
+  timestamp = '2026-11-06T12:00:05.000Z';
+  await logValue();
+  const latest = await readFile(filePath, 'utf8');
+  assert.notEqual(latest, first);
+  assert.equal(latest.trim().split('\n').length, 1);
+  assert.equal(logPattern.exec(latest.trim())[2], logPattern.exec(first.trim())[2]);
+  assert.equal(await (await fetch(url)).text(), latest);
+});
+
+test('atomic replacement never exposes an incomplete file', { timeout: 5000 }, async t => {
+  const filePath = await temporaryFile(t);
+  t.mock.method(console, 'log', () => {});
+  const logValue = createLogger(filePath);
+  await logValue();
+  await Promise.all([
+    (async () => { for (let i = 0; i < 30; i++) await logValue(); })(),
+    (async () => {
+      for (let i = 0; i < 100; i++) {
+        const content = await readFile(filePath, 'utf8');
+        assert.ok(logPattern.test(content.trim()), content);
+        assert.equal(content.trim().split('\n').length, 1);
+      }
+    })(),
+  ]);
+});
+
+test('reader reports other file errors without exposing paths', { timeout: 5000 }, async t => {
+  const filePath = await temporaryFile(t);
+  await writeFile(filePath, 'not a directory');
+  t.mock.method(console, 'error', () => {});
+  const server = createApp(join(filePath, 'child.txt'));
+  t.after(() => { server.closeAllConnections(); server.close(); });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/`);
+  assert.equal(response.status, 500);
+  assert.equal(await response.text(), 'Unable to read log output\n');
+});
+
+test('separate processes share the file and reader restart preserves its content', { timeout: 15_000 }, async t => {
+  const filePath = await temporaryFile(t);
+  const firstReader = await startReader(t, filePath);
+  const missing = await fetch(firstReader.url);
+  assert.equal(missing.status, 503);
+  await missing.text();
+  const writer = await startProcess(t, 'writer', filePath);
+  const expected = `${writer.lines[0]}\n`;
+  assert.equal(await (await fetch(firstReader.url)).text(), expected);
+  await stopProcess(firstReader.child, 'SIGINT');
+  const secondReader = await startReader(t, filePath);
+  assert.equal(await (await fetch(secondReader.url)).text(), expected);
+  await stopProcess(writer.child);
+  // The last line remains readable even while the writer is stopped.
+  assert.equal(await (await fetch(secondReader.url)).text(), expected);
+  await stopProcess(secondReader.child);
 });
