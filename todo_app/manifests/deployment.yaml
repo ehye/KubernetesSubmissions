@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: todo-app
-          image: todo-app:2.1
+          image: todo-app:2.2
           resources:
             requests:
               cpu: "50m"
@@ -29,6 +29,8 @@ spec:
               value: "3000"
             - name: IMAGE_CACHE_FILE
               value: /shared/todo-image/image.jpg
+            - name: TODO_BACKEND_URL
+              value: http://todo-backend-svc:2345
             - name: ENABLE_SHUTDOWN_TEST
               value: "false"
           ports:

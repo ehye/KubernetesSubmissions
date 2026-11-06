@@ -5,6 +5,7 @@ try {
   const server = createApp({
     imagePath: process.env.IMAGE_CACHE_FILE,
     imageUrl: process.env.PICSUM_URL,
+    backendUrl: process.env.TODO_BACKEND_URL,
     enableShutdownTest: process.env.ENABLE_SHUTDOWN_TEST === 'true',
   });
 

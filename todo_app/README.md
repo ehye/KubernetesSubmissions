@@ -2,18 +2,31 @@
 
 A TypeScript HTTP server with a centered photo below the Todo app heading.
 The browser loads the photo from this app's `/image` endpoint, not directly
-from Picsum.
+from Picsum. The todo list and Send button use the separate
+[Todo backend](../todo_backend/README.md).
 
 ## Run
 
 ```sh
 pnpm install --frozen-lockfile
 pnpm build
-PORT=8080 pnpm start
+TODO_BACKEND_URL=http://127.0.0.1:3001 PORT=8080 pnpm start
 ```
 
 Open `http://127.0.0.1:8080/`. `PORT` defaults to `3000` when not specified.
 Use `pnpm test` to run the tests.
+
+First start `todo_backend/` on port `3001`. The frontend loads todos from
+`GET /todos` and sends `POST /todos` with JSON when the form is submitted.
+Its Node server forwards those requests to `TODO_BACKEND_URL` (locally defaulting
+to `http://127.0.0.1:3001`). In Kubernetes the Deployment sets it to
+`http://todo-backend-svc:2345`, which forwards to backend port `3000`.
+
+The browser always uses relative `/todos` URLs; it does not contact a Kubernetes
+Service name directly. Todo text is limited to 140 characters in both apps and
+rendered as text, not HTML. The page shows loading, empty-list, and backend errors.
+The backend starts with an empty list and loses its todos on restart. The
+frontend's persistent image cache is separate and unchanged.
 
 ## Ten-minute image cache
 
@@ -40,8 +53,11 @@ that cluster. First prepare the existing PV/PVC and its directory using the
 [storage guide](../storage/README.md).
 
 ```sh
-docker build -t todo-app:2.1 ./todo_app
-k3d image import todo-app:2.1 -c <cluster-name>
+docker build -t todo-backend:2.2 ./todo_backend
+docker build -t todo-app:2.2 ./todo_app
+k3d image import todo-backend:2.2 todo-app:2.2 -c <cluster-name>
+kubectl -n default apply -f todo_backend/manifests/
+kubectl -n default rollout status deployment/todo-backend-dep
 kubectl -n default apply -f todo_app/manifests/
 kubectl -n default rollout status deployment/todo-app-dep
 kubectl -n default logs -f deployment/todo-app-dep
