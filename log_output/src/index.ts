@@ -7,7 +7,7 @@ if (!/^\d+$/.test(portValue) || !Number.isInteger(port) || port > 65535) {
   console.error('PORT must be an integer between 0 and 65535');
   process.exitCode = 1;
 } else {
-  const server = createApp(process.env.LOG_FILE ?? './data/log.txt');
+  const server = createApp(process.env.LOG_FILE ?? './data/log.txt', process.env.COUNTER_FILE);
 
   server.on('error', (error: Error) => {
     console.error(`Server failed: ${error.message}`);

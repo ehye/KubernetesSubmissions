@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { createLogger } from '../dist/logger.js';
 import { createApp } from '../dist/server.js';
@@ -19,7 +19,7 @@ async function temporaryFile(t) {
 async function startProcess(t, entry, filePath, lineCount = 1) {
   const child = spawn(process.execPath, [`dist/${entry}.js`], {
     cwd: new URL('../', import.meta.url),
-    env: { ...process.env, LOG_FILE: filePath, PORT: '0' },
+    env: { ...process.env, LOG_FILE: filePath, COUNTER_FILE: join(dirname(filePath), 'pingpong-count.txt'), PORT: '0' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   t.after(async () => {
@@ -117,7 +117,7 @@ test('reader returns 503 before the first write, then reads only the latest line
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('content-type'), 'text/plain; charset=utf-8');
     assert.equal(response.headers.get('cache-control'), 'no-store');
-    assert.equal(await response.text(), first);
+    assert.equal(await response.text(), `${first.trimEnd()}.\nPing / Pongs: 0\n`);
   }
   assert.equal(output.mock.callCount(), 1);
 
@@ -127,7 +127,7 @@ test('reader returns 503 before the first write, then reads only the latest line
   assert.notEqual(latest, first);
   assert.equal(latest.trim().split('\n').length, 1);
   assert.equal(logPattern.exec(latest.trim())[2], logPattern.exec(first.trim())[2]);
-  assert.equal(await (await fetch(url)).text(), latest);
+  assert.equal(await (await fetch(url)).text(), `${latest.trimEnd()}.\nPing / Pongs: 0\n`);
 });
 
 test('atomic replacement never exposes an incomplete file', { timeout: 5000 }, async t => {
@@ -167,7 +167,7 @@ test('separate processes share the file and reader restart preserves its content
   assert.equal(missing.status, 503);
   await missing.text();
   const writer = await startProcess(t, 'writer', filePath);
-  const expected = `${writer.lines[0]}\n`;
+  const expected = `${writer.lines[0]}.\nPing / Pongs: 0\n`;
   assert.equal(await (await fetch(firstReader.url)).text(), expected);
   await stopProcess(firstReader.child, 'SIGINT');
   const secondReader = await startReader(t, filePath);
@@ -176,4 +176,40 @@ test('separate processes share the file and reader restart preserves its content
   // The last line remains readable even while the writer is stopped.
   assert.equal(await (await fetch(secondReader.url)).text(), expected);
   await stopProcess(secondReader.child);
+});
+
+test('GET / reads the persisted ping-pong total without changing it', { timeout: 5000 }, async t => {
+  const filePath = await temporaryFile(t);
+  const counterPath = join(dirname(filePath), 'pingpong-count.txt');
+  const line = '2020-03-30T12:15:17.705Z: 8523ecb1-c716-4cb6-a044-b9e83bb98e43';
+  await writeFile(filePath, `${line}\n`);
+  await writeFile(counterPath, '3\n');
+  const reader = await startReader(t, filePath);
+  for (let i = 0; i < 2; i++) {
+    const response = await fetch(reader.url);
+    assert.equal(response.status, 200);
+    assert.equal(await response.text(), `${line}.\nPing / Pongs: 3\n`);
+  }
+  assert.equal(await readFile(counterPath, 'utf8'), '3\n');
+  await writeFile(counterPath, '4\n');
+  assert.equal(await (await fetch(reader.url)).text(), `${line}.\nPing / Pongs: 4\n`);
+  await stopProcess(reader.child);
+});
+
+test('invalid ping-pong totals return an error instead of zero', { timeout: 5000 }, async t => {
+  const filePath = await temporaryFile(t);
+  const counterPath = join(dirname(filePath), 'pingpong-count.txt');
+  await writeFile(filePath, 'timestamp: uuid\n');
+  const server = createApp(filePath, counterPath);
+  t.mock.method(console, 'error', () => {});
+  t.after(() => { server.closeAllConnections(); server.close(); });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  for (const invalid of ['', '-1', '3.5', 'not a number']) {
+    await writeFile(counterPath, invalid);
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/`);
+    assert.equal(response.status, 500);
+    assert.equal(await response.text(), 'Unable to read log output\n');
+    assert.equal(await readFile(counterPath, 'utf8'), invalid);
+  }
 });

@@ -1,14 +1,25 @@
 # Ping-pong
 
 A self-contained TypeScript HTTP application. Each `GET /pingpong` returns
-`pong 0`, then `pong 1`, and so on.
+`pong 0`, then `pong 1`, and so on. The total is persisted atomically to
+`/shared/pingpong-count.txt`, shared with Log output through one PVC. After three
+requests, Log output shows `Ping / Pongs: 3`. Restarts preserve the counter.
+
+For local execution, `COUNTER_FILE` defaults to `./data/pingpong-count.txt`.
+Set it to the same file path used by the Log output reader when running the
+applications outside Kubernetes. `PORT` defaults to `3000`.
 
 ## Deploy to the existing k3d cluster
 
 ```sh
-docker build -t ping-pong:1.9 ./ping_pong
-k3d image import ping-pong:1.9 -c <cluster-name>
+docker build -t ping-pong:1.11 ./ping_pong
+k3d image import ping-pong:1.11 -c <cluster-name>
 ```
+
+Create the PV/PVC before applying the Deployments. Follow the
+[shared storage deployment guide](../storage/README.md) to deploy both apps and
+verify persistence. Keep a single replica; counter updates are not locked across
+multiple application processes.
 
 ### Configure the dedicated ingress listener
 
