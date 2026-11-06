@@ -1,17 +1,18 @@
 # Log output
 
-Two containers in one Pod share a persistent volume with the separate Ping-pong Pod:
+Log output gets the ping-pong count through HTTP, not through a shared file.
+Its two containers still share the latest log line through a Pod-local `emptyDir`:
 
 - **writer:** generates a startup UUID and replaces `/shared/log.txt` immediately
   and every five seconds. It writes a temporary file and renames it atomically.
-- **reader:** reads that file and `/shared/pingpong-count.txt` on each HTTP request,
+- **reader:** reads that file and calls Ping-pong's `GET /pings` on each HTTP request,
   returning the latest log line followed by `Ping / Pongs: <total>`.
   The volume is mounted read-only in this container.
 
 Only the latest line is stored, not a growing history. Restarting the writer
 generates a new UUID; restarting the reader does not change the file. The shared
-files survive container and Pod replacement. Ping-pong persists its request count
-separately; restarting the Log output writer never resets that count.
+log file survives container restarts but is lost when the Pod is replaced.
+Ping-pong keeps its count in memory, so restarting Ping-pong resets the count.
 
 ### Run
 
@@ -29,15 +30,18 @@ pnpm start
 
 Both processes default to `./data/log.txt`. Set `LOG_FILE` to the same path for
 both processes to override it. Use `pnpm dev:writer` and `pnpm dev` for watch mode.
-The reader defaults to `pingpong-count.txt` beside the log file; use `COUNTER_FILE`
-to override that path. For local sharing, point it to the file used by Ping-pong.
+Start Ping-pong locally on port `3001`, as described in its README. The reader
+defaults to `PING_PONG_URL=http://127.0.0.1:3001/pings`; override this variable
+when Ping-pong uses a different address.
 
 Open `http://localhost:3000/` to see the latest logged timestamp and startup UUID.
 The timestamp updates with the five-second logging interval, not on each request.
 Set `PORT` to override the default listening port of `3000`.
 Before the writer creates the file, the reader returns `503` with `Retry-After: 1`.
 Other file-read failures return `500`. The reader never creates or modifies the file.
-A missing counter file means zero; a malformed counter produces `500`.
+An unavailable Ping-pong, invalid count, or request exceeding three seconds
+returns `503` instead of an incorrect count. Reading Log output does not
+increment the ping-pong count.
 
 Run tests with `pnpm test`.
 
@@ -53,7 +57,7 @@ Ping / Pongs: 3
 Build the image
 
 ```sh
-docker build -t log-output:1.11 .
+docker build -t log-output:2.1 .
 ```
 
 Both containers use this image. The Deployment runs `node dist/writer.js` in the
@@ -62,20 +66,21 @@ only the reader, so running it alone requires a file supplied by a writer.
 
 ### k3d deployment
 
-Follow the [shared storage guide](../storage/README.md) to create the PV and PVC
-and deploy both applications. Once the PVC exists, from `log_output/`:
+Follow the [Ping-pong deployment guide](../ping_pong/README.md) to build and
+deploy both applications. Neither needs a PV/PVC. From `log_output/`:
 
 ```sh
-k3d image import log-output:1.11 -c <cluster-name>
+k3d image import log-output:2.1 -c <cluster-name>
 kubectl apply -f manifests/
 kubectl rollout status deployment/randomstring-dep
 kubectl logs -f deployment/randomstring-dep -c writer
 ```
 
-The Docker image runs as the `node` user (UID/GID `1000`). Prepare the node
-directory's ownership manually as described in the storage guide. Only
-the reader listens on port `3000`, so the existing
-Service selector, Service port, and Ingress routes remain unchanged.
+In Kubernetes, `PING_PONG_URL` points to `http://ping-pong-svc:2345/pings`.
+Kubernetes resolves the Service name inside the namespace; this request does
+not go through Ingress. Only the reader listens on port `3000`, so Service and
+Ingress routing stay unchanged. Todo still uses the existing PVC for its image
+cache: do not delete the PV/PVC or its files.
 
 Log output now shares an Ingress with Ping-pong on the dedicated Traefik
 `log-output` entrypoint. Follow the [Ping-pong deployment guide](../ping_pong/README.md)

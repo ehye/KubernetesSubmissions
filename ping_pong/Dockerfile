@@ -14,7 +14,6 @@ FROM node:26.13.0-alpine AS runtime
 
 ENV NODE_ENV=production
 ENV PORT=3000
-ENV COUNTER_FILE=/shared/pingpong-count.txt
 WORKDIR /app
 
 COPY --from=build --chown=node:node /app/package.json ./package.json

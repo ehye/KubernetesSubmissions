@@ -16,7 +16,7 @@ FROM node:26.13.0-alpine AS runtime
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV LOG_FILE=/shared/log.txt
-ENV COUNTER_FILE=/shared/pingpong-count.txt
+ENV PING_PONG_URL=http://ping-pong-svc:2345/pings
 WORKDIR /app
 
 COPY --from=build --chown=node:node /app/package.json ./package.json

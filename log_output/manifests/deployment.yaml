@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: writer
-          image: log-output:1.11
+          image: log-output:2.1
           command: ["node", "dist/writer.js"]
           resources:
             requests:
@@ -29,10 +29,10 @@ spec:
             - name: LOG_FILE
               value: /shared/log.txt
           volumeMounts:
-            - name: shared-data
+            - name: log-data
               mountPath: /shared
         - name: reader
-          image: log-output:1.11
+          image: log-output:2.1
           command: ["node", "dist/index.js"]
           resources:
             requests:
@@ -46,15 +46,14 @@ spec:
               value: "3000"
             - name: LOG_FILE
               value: /shared/log.txt
-            - name: COUNTER_FILE
-              value: /shared/pingpong-count.txt
+            - name: PING_PONG_URL
+              value: http://ping-pong-svc:2345/pings
           ports:
             - containerPort: 3000
           volumeMounts:
-            - name: shared-data
+            - name: log-data
               mountPath: /shared
               readOnly: true
       volumes:
-        - name: shared-data
-          persistentVolumeClaim:
-            claimName: shared-data-pvc
+        - name: log-data
+          emptyDir: {}

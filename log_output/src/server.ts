@@ -1,33 +1,26 @@
 import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
-import { dirname, join } from 'node:path';
 
-async function readCount(filePath: string): Promise<string> {
-  let content: string;
-  try {
-    content = await readFile(filePath, 'utf8');
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return '0';
-    throw error;
+async function requestCount(url: string): Promise<string> {
+  const response = await fetch(url, { signal: AbortSignal.timeout(3_000) });
+  if (!response.ok) throw new Error(`Ping-pong returned HTTP ${response.status}`);
+  const count = (await response.text()).trim();
+  if (!/^(0|[1-9]\d*)$/.test(count)) {
+    throw new Error('Ping-pong returned an invalid count');
   }
-  if (!/^(0|[1-9]\d*)$/.test(content.trim())) {
-    throw new Error('Invalid persisted ping-pong count');
-  }
-  return content.trim();
+  return count;
 }
 
-export function createApp(filePath: string, counterPath = join(dirname(filePath), 'pingpong-count.txt')) {
+export function createApp(filePath: string, pingPongUrl = 'http://127.0.0.1:3001/pings') {
   return createServer(async (_request, response) => {
     const headers = {
       'Content-Type': 'text/plain; charset=utf-8',
       'Cache-Control': 'no-store',
     };
 
+    let content: string;
     try {
-      const content = await readFile(filePath, 'utf8');
-      const count = await readCount(counterPath);
-      response.writeHead(200, headers);
-      response.end(`${content.trimEnd()}.\nPing / Pongs: ${count}\n`);
+      content = await readFile(filePath, 'utf8');
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
         response.writeHead(503, { ...headers, 'Retry-After': '1' });
@@ -37,6 +30,17 @@ export function createApp(filePath: string, counterPath = join(dirname(filePath)
         response.writeHead(500, headers);
         response.end('Unable to read log output\n');
       }
+      return;
+    }
+
+    try {
+      const count = await requestCount(pingPongUrl);
+      response.writeHead(200, headers);
+      response.end(`${content.trimEnd()}.\nPing / Pongs: ${count}\n`);
+    } catch (error) {
+      console.error(error);
+      response.writeHead(503, { ...headers, 'Retry-After': '1' });
+      response.end('Ping-pong is temporarily unavailable\n');
     }
   });
 }
