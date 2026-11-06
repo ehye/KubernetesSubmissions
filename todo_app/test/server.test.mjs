@@ -36,6 +36,17 @@ test('serves an HTML page for GET / and preserves other responses', { timeout: 5
   assert.match(html, /<h1>Todo app<\/h1>\s*<img src="\/image"/);
   assert.match(html, /max-width: 100%/);
   assert.match(html, /margin: 24px auto/);
+  assert.match(html, /<label for="todo-input">New todo<\/label>/);
+  assert.match(html, /<input[^>]*id="todo-input"[^>]*maxlength="140"[^>]*aria-describedby="todo-limit"/);
+  assert.match(html, /<button type="button">Send<\/button>/);
+  assert.match(html, /<small id="todo-limit">Maximum 140 characters\.<\/small>/);
+  assert.match(html, /<img[^>]*>\s*<section class="todo-panel"/);
+  const list = /<ul>([\s\S]*?)<\/ul>/.exec(html);
+  assert.ok(list);
+  assert.equal([...list[1].matchAll(/<li>/g)].length, 3);
+  assert.match(list[1], /<li>Buy groceries<\/li>/);
+  assert.match(list[1], /<li>Read a book<\/li>/);
+  assert.match(list[1], /<li>Finish the Kubernetes exercise<\/li>/);
 
   const rootWithQuery = await fetch(`http://127.0.0.1:${server.address().port}/?example=1`);
   assert.equal(await rootWithQuery.text(), html);
