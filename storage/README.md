@@ -1,7 +1,11 @@
 # Shared persistent storage
 
-Log output and Ping-pong mount the same PVC, `shared-data-pvc`, in the `default`
+Log output, Ping-pong, and Todo mount the same PVC, `shared-data-pvc`, in the `default`
 namespace. 
+
+Todo stores its ten-minute image cache in `/shared/todo-image/image.jpg`, separate
+from the log and counter files. See [Todo](../todo_app/README.md) for deployment
+and container-crash testing instructions.
 
 ## Local k3d storage design
 

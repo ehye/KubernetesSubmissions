@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { createImageCache } from './image-cache.js';
 
 export function parsePort(value: string | undefined): number {
   if (value === undefined) return 3000;
@@ -10,19 +11,80 @@ export function parsePort(value: string | undefined): number {
   return Number(value);
 }
 
-export function createApp() {
-  return createServer((request, response) => {
-    if (request.method === 'GET' && request.url?.split('?')[0] === '/') {
-      response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+interface AppOptions {
+  imagePath?: string;
+  imageUrl?: string;
+  enableShutdownTest?: boolean;
+  onShutdown?: () => void;
+}
+
+export function createApp({
+  imagePath = './data/todo-image/image.jpg',
+  imageUrl,
+  enableShutdownTest = false,
+  onShutdown = () => process.exit(1),
+}: AppOptions = {}) {
+  const getImage = createImageCache({ filePath: imagePath, imageUrl });
+
+  return createServer(async (request, response) => {
+    const path = request.url?.split('?')[0];
+
+    if (path === '/_test/shutdown') {
+      if (!enableShutdownTest) {
+        response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+        response.end('Not found\n');
+      } else if (request.method !== 'POST') {
+        response.writeHead(405, { Allow: 'POST', 'Content-Type': 'text/plain; charset=utf-8' });
+        response.end('Use POST to test shutdown\n');
+      } else {
+        response.writeHead(202, {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Cache-Control': 'no-store',
+        });
+        response.end('Shutting down for testing\n', onShutdown);
+      }
+      return;
+    }
+
+    if (request.method === 'GET' && path === '/image') {
+      try {
+        const image = await getImage();
+        response.writeHead(200, {
+          'Content-Type': 'image/jpeg',
+          'Cache-Control': 'no-store',
+        });
+        response.end(image);
+      } catch (error) {
+        console.error('Unable to load the image:', error);
+        response.writeHead(503, {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Cache-Control': 'no-store',
+          'Retry-After': '5',
+        });
+        response.end('Image is temporarily unavailable\n');
+      }
+      return;
+    }
+
+    if (request.method === 'GET' && path === '/') {
+      response.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store',
+      });
       response.end(`<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Todo app</title>
+    <style>
+      body { max-width: 1200px; margin: 0 auto; padding: 24px; text-align: center; }
+      img { display: block; max-width: 100%; height: auto; margin: 24px auto; }
+    </style>
   </head>
   <body>
     <h1>Todo app</h1>
+    <img src="/image" alt="Random photograph from Lorem Picsum" width="1200" height="1200">
   </body>
 </html>
 `);
