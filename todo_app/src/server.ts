@@ -79,12 +79,33 @@ export function createApp({
     <title>Todo app</title>
     <style>
       body { max-width: 1200px; margin: 0 auto; padding: 24px; text-align: center; }
-      img { display: block; max-width: 100%; height: auto; margin: 24px auto; }
+      img { display: block; width: 400px; max-width: 100%; height: auto; margin: 24px auto; }
+      .todo-panel { max-width: 36rem; margin: 24px auto; text-align: left; }
+      label { display: block; margin-bottom: 8px; }
+      .todo-controls { display: flex; gap: 8px; }
+      input { flex: 1; min-width: 0; padding: 8px; font: inherit; }
+      button { padding: 8px 16px; font: inherit; }
+      small { display: block; margin-top: 8px; }
+      li { margin: 8px 0; }
     </style>
   </head>
   <body>
     <h1>Todo app</h1>
     <img src="/image" alt="Random photograph from Lorem Picsum" width="1200" height="1200">
+    <section class="todo-panel" aria-labelledby="todos-heading">
+      <h2 id="todos-heading">Todos</h2>
+      <label for="todo-input">New todo</label>
+      <div class="todo-controls">
+        <input id="todo-input" name="todo" type="text" maxlength="140" aria-describedby="todo-limit" placeholder="What needs to be done?">
+        <button type="button">Send</button>
+      </div>
+      <small id="todo-limit">Maximum 140 characters.</small>
+      <ul>
+        <li>Buy groceries</li>
+        <li>Read a book</li>
+        <li>Finish the Kubernetes exercise</li>
+      </ul>
+    </section>
   </body>
 </html>
 `);
