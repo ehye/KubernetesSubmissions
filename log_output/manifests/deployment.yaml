@@ -4,6 +4,8 @@ metadata:
   name: randomstring-dep
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: randomstring
@@ -14,7 +16,7 @@ spec:
     spec:
       containers:
         - name: writer
-          image: log-output:1.10
+          image: log-output:1.11
           command: ["node", "dist/writer.js"]
           resources:
             requests:
@@ -27,10 +29,10 @@ spec:
             - name: LOG_FILE
               value: /shared/log.txt
           volumeMounts:
-            - name: log-data
+            - name: shared-data
               mountPath: /shared
         - name: reader
-          image: log-output:1.10
+          image: log-output:1.11
           command: ["node", "dist/index.js"]
           resources:
             requests:
@@ -44,12 +46,15 @@ spec:
               value: "3000"
             - name: LOG_FILE
               value: /shared/log.txt
+            - name: COUNTER_FILE
+              value: /shared/pingpong-count.txt
           ports:
             - containerPort: 3000
           volumeMounts:
-            - name: log-data
+            - name: shared-data
               mountPath: /shared
               readOnly: true
       volumes:
-        - name: log-data
-          emptyDir: {}
+        - name: shared-data
+          persistentVolumeClaim:
+            claimName: shared-data-pvc
