@@ -2,7 +2,11 @@ import { createApp, parsePort } from './server.js';
 
 try {
   const port = parsePort(process.env.PORT);
-  const server = createApp();
+  const server = createApp({
+    imagePath: process.env.IMAGE_CACHE_FILE,
+    imageUrl: process.env.PICSUM_URL,
+    enableShutdownTest: process.env.ENABLE_SHUTDOWN_TEST === 'true',
+  });
 
   server.on('error', (error: Error) => {
     console.error(`Server failed: ${error.message}`);

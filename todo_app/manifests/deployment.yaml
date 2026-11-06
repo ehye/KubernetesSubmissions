@@ -4,6 +4,8 @@ metadata:
   name: todo-app-dep
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: todo-app
@@ -14,9 +16,27 @@ spec:
     spec:
       containers:
         - name: todo-app
-          image: todo-app:1.2
+          image: todo-app:1.12
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "250m"
+              memory: "128Mi"
           env:
             - name: PORT
               value: "3000"
+            - name: IMAGE_CACHE_FILE
+              value: /shared/todo-image/image.jpg
+            - name: ENABLE_SHUTDOWN_TEST
+              value: "false"
           ports:
             - containerPort: 3000
+          volumeMounts:
+            - name: shared-data
+              mountPath: /shared
+      volumes:
+        - name: shared-data
+          persistentVolumeClaim:
+            claimName: shared-data-pvc

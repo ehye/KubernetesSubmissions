@@ -33,6 +33,9 @@ test('serves an HTML page for GET / and preserves other responses', { timeout: 5
   assert.match(html, /^<!DOCTYPE html>/);
   assert.match(html, /<title>Todo app<\/title>/);
   assert.match(html, /<h1>Todo app<\/h1>/);
+  assert.match(html, /<h1>Todo app<\/h1>\s*<img src="\/image"/);
+  assert.match(html, /max-width: 100%/);
+  assert.match(html, /margin: 24px auto/);
 
   const rootWithQuery = await fetch(`http://127.0.0.1:${server.address().port}/?example=1`);
   assert.equal(await rootWithQuery.text(), html);
