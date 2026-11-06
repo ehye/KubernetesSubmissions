@@ -1,5 +1,7 @@
 import { createServer } from 'node:http';
 import { createImageCache } from './image-cache.js';
+import { todoClientScript } from './client.js';
+import { proxyTodos } from './todos-proxy.js';
 
 export function parsePort(value: string | undefined): number {
   if (value === undefined) return 3000;
@@ -14,6 +16,7 @@ export function parsePort(value: string | undefined): number {
 interface AppOptions {
   imagePath?: string;
   imageUrl?: string;
+  backendUrl?: string;
   enableShutdownTest?: boolean;
   onShutdown?: () => void;
 }
@@ -21,6 +24,7 @@ interface AppOptions {
 export function createApp({
   imagePath = './data/todo-image/image.jpg',
   imageUrl,
+  backendUrl = 'http://127.0.0.1:3001',
   enableShutdownTest = false,
   onShutdown = () => process.exit(1),
 }: AppOptions = {}) {
@@ -28,6 +32,11 @@ export function createApp({
 
   return createServer(async (request, response) => {
     const path = request.url?.split('?')[0];
+
+    if (path === '/todos') {
+      await proxyTodos(request, response, backendUrl);
+      return;
+    }
 
     if (path === '/_test/shutdown') {
       if (!enableShutdownTest) {
@@ -95,17 +104,15 @@ export function createApp({
     <section class="todo-panel" aria-labelledby="todos-heading">
       <h2 id="todos-heading">Todos</h2>
       <label for="todo-input">New todo</label>
-      <div class="todo-controls">
-        <input id="todo-input" name="todo" type="text" maxlength="140" aria-describedby="todo-limit" placeholder="What needs to be done?">
-        <button type="button">Send</button>
-      </div>
+      <form id="todo-form" class="todo-controls">
+        <input id="todo-input" name="todo" type="text" maxlength="140" required aria-describedby="todo-limit" placeholder="What needs to be done?">
+        <button id="todo-send" type="submit">Send</button>
+      </form>
       <small id="todo-limit">Maximum 140 characters.</small>
-      <ul>
-        <li>Buy groceries</li>
-        <li>Read a book</li>
-        <li>Finish the Kubernetes exercise</li>
-      </ul>
+      <p id="todo-status" role="status" aria-live="polite">Loading todos...</p>
+      <ul id="todo-list"></ul>
     </section>
+    <script>${todoClientScript}</script>
   </body>
 </html>
 `);
