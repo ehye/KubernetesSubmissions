@@ -1,18 +1,18 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: randomstring-dep
+  name: log-output-dep
 spec:
   replicas: 1
   strategy:
     type: Recreate
   selector:
     matchLabels:
-      app: randomstring
+      app: log-output
   template:
     metadata:
       labels:
-        app: randomstring
+        app: log-output
     spec:
       containers:
         - name: writer

@@ -72,8 +72,8 @@ deploy both applications. Neither needs a PV/PVC. From `log_output/`:
 ```sh
 k3d image import log-output:2.1 -c <cluster-name>
 kubectl apply -f manifests/
-kubectl rollout status deployment/randomstring-dep
-kubectl logs -f deployment/randomstring-dep -c writer
+kubectl rollout status deployment/log-output-dep
+kubectl logs -f deployment/log-output-dep -c writer
 ```
 
 In Kubernetes, `PING_PONG_URL` points to `http://ping-pong-svc:2345/pings`.
