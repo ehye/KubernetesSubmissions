@@ -33,7 +33,7 @@ k3d image import ping-pong:2.1 log-output:2.1 -c <cluster-name>
 kubectl -n default apply -f ping_pong/manifests/
 kubectl -n default apply -f log_output/manifests/
 kubectl -n default rollout status deployment/ping-pong-dep
-kubectl -n default rollout status deployment/randomstring-dep
+kubectl -n default rollout status deployment/log-output-dep
 ```
 
 Run these commands from the repository root, with kubectl targeting the same
