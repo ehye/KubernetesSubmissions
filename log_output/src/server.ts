@@ -11,7 +11,12 @@ async function requestCount(url: string): Promise<string> {
   return count;
 }
 
-export function createApp(filePath: string, pingPongUrl = 'http://127.0.0.1:3001/pings') {
+interface ConfigOptions {
+  informationFile?: string;
+  message?: string;
+}
+
+export function createApp(filePath: string, pingPongUrl = 'http://127.0.0.1:3001/pings', config: ConfigOptions = {}) {
   return createServer(async (_request, response) => {
     const headers = {
       'Content-Type': 'text/plain; charset=utf-8',
@@ -33,10 +38,26 @@ export function createApp(filePath: string, pingPongUrl = 'http://127.0.0.1:3001
       return;
     }
 
+    let configOutput = '';
+    if (config.informationFile !== undefined) {
+      try {
+        const information = await readFile(config.informationFile, 'utf8');
+        configOutput = `file content: ${information.trimEnd()}\n`;
+      } catch (error) {
+        console.error(error);
+        response.writeHead(500, headers);
+        response.end('Unable to read configuration file\n');
+        return;
+      }
+    }
+    if (config.message !== undefined) {
+      configOutput += `env variable: MESSAGE=${config.message}\n`;
+    }
+
     try {
       const count = await requestCount(pingPongUrl);
       response.writeHead(200, headers);
-      response.end(`${content.trimEnd()}.\nPing / Pongs: ${count}\n`);
+      response.end(`${configOutput}${content.trimEnd()}.\nPing / Pongs: ${count}\n`);
     } catch (error) {
       console.error(error);
       response.writeHead(503, { ...headers, 'Retry-After': '1' });
