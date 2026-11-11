@@ -35,10 +35,10 @@ async function startPings(t, state = { count: '0', status: 200 }) {
   return { url: `${base}pings`, requests };
 }
 
-async function startProcess(t, entry, filePath, lineCount = 1, pingPongUrl = 'http://127.0.0.1:1/pings') {
+async function startProcess(t, entry, filePath, lineCount = 1, pingPongUrl = 'http://127.0.0.1:1/pings', env = {}) {
   const child = spawn(process.execPath, [`dist/${entry}.js`], {
     cwd: new URL('../', import.meta.url),
-    env: { ...process.env, LOG_FILE: filePath, PING_PONG_URL: pingPongUrl, PORT: '0' },
+    env: { ...process.env, INFORMATION_FILE: undefined, MESSAGE: undefined, LOG_FILE: filePath, PING_PONG_URL: pingPongUrl, PORT: '0', ...env },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   t.after(async () => {
@@ -143,6 +143,41 @@ test('reader returns 503 before the first write, then combines the latest line w
   assert.equal(logPattern.exec(latest.trim())[2], logPattern.exec(first.trim())[2]);
   assert.equal(await (await fetch(url)).text(), `${latest.trimEnd()}.\nPing / Pongs: 0\n`);
   assert.deepEqual(upstream.requests, Array(3).fill({ method: 'GET', path: '/pings' }));
+});
+
+test('reader process prints the configured file and MESSAGE before existing output', { timeout: 5000 }, async t => {
+  const filePath = await temporaryFile(t);
+  const informationFile = join(dirname(filePath), 'information.txt');
+  await writeFile(filePath, 'timestamp: uuid\n');
+  await writeFile(informationFile, 'this text is from file\n');
+  const upstream = await startPings(t, { count: '3', status: 200 });
+  const reader = await startProcess(t, 'index', filePath, 1, upstream.url, {
+    INFORMATION_FILE: informationFile,
+    MESSAGE: 'hello world',
+  });
+  const port = /^Server started in port (\d+)$/.exec(reader.lines[0])[1];
+  const url = `http://127.0.0.1:${port}/`;
+  const response = await fetch(url);
+  assert.equal(response.status, 200);
+  assert.equal(await response.text(), 'file content: this text is from file\nenv variable: MESSAGE=hello world\ntimestamp: uuid.\nPing / Pongs: 3\n');
+  await writeFile(informationFile, 'updated file\n');
+  assert.match(await (await fetch(url)).text(), /^file content: updated file\n/);
+  await stopProcess(reader.child);
+});
+
+test('reader reports a missing configuration file without calling Ping-pong', { timeout: 5000 }, async t => {
+  const filePath = await temporaryFile(t);
+  await writeFile(filePath, 'timestamp: uuid\n');
+  const upstream = await startPings(t);
+  t.mock.method(console, 'error', () => {});
+  const url = await listen(t, createApp(filePath, upstream.url, {
+    informationFile: join(dirname(filePath), 'missing.txt'),
+    message: 'hello world',
+  }));
+  const response = await fetch(url);
+  assert.equal(response.status, 500);
+  assert.equal(await response.text(), 'Unable to read configuration file\n');
+  assert.equal(upstream.requests.length, 0);
 });
 
 test('atomic replacement never exposes an incomplete log file', { timeout: 5000 }, async t => {

@@ -48,16 +48,44 @@ Run tests with `pnpm test`.
 Example output:
 
 ```text
+file content: this text is from file
+env variable: MESSAGE=hello world
 2020-03-30T12:15:17.705Z: 8523ecb1-c716-4cb6-a044-b9e83bb98e43.
 Ping / Pongs: 3
 ```
+
+### ConfigMap
+
+`manifests/configmap.yaml` defines `information.txt` and `MESSAGE`. The reader
+mounts only the file at `/etc/config/information.txt` (read-only) and receives
+`MESSAGE` through `configMapKeyRef`. `INFORMATION_FILE` tells the reader where
+to read the mounted file. These values appear before the existing HTTP output.
+
+For local testing, create a file and start the reader with:
+
+```sh
+echo 'this text is from file' > information.txt
+INFORMATION_FILE=./information.txt MESSAGE='hello world' pnpm start
+```
+
+When these variables are unset, the reader keeps its original output. A configured
+but unreadable file returns `500`. File content is read on each request; ConfigMap
+volume updates propagate eventually. Environment changes require a Pod restart.
+Apply the ConfigMap and Deployment in the same namespace, for example:
+
+```sh
+kubectl -n exercises apply -f manifests/
+kubectl -n exercises rollout restart deployment/log-output-dep
+```
+
+Rebuild and import the Log output image before restarting to run the updated code.
 
 ### Docker 
 
 Build the image
 
 ```sh
-docker build -t log-output:2.1 .
+docker build -t log-output:2.5 .
 ```
 
 Both containers use this image. The Deployment runs `node dist/writer.js` in the
@@ -70,7 +98,7 @@ Follow the [Ping-pong deployment guide](../ping_pong/README.md) to build and
 deploy both applications. Neither needs a PV/PVC. From `log_output/`:
 
 ```sh
-k3d image import log-output:2.1 -c <cluster-name>
+k3d image import log-output:2.5 -c <cluster-name>
 kubectl apply -f manifests/
 kubectl rollout status deployment/log-output-dep
 kubectl logs -f deployment/log-output-dep -c writer

@@ -2,6 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: log-output-dep
+  namespace: exercises
 spec:
   replicas: 1
   strategy:
@@ -16,7 +17,7 @@ spec:
     spec:
       containers:
         - name: writer
-          image: log-output:2.1
+          image: log-output:2.5
           command: ["node", "dist/writer.js"]
           resources:
             requests:
@@ -32,7 +33,7 @@ spec:
             - name: log-data
               mountPath: /shared
         - name: reader
-          image: log-output:2.1
+          image: log-output:2.5
           command: ["node", "dist/index.js"]
           resources:
             requests:
@@ -42,8 +43,15 @@ spec:
               cpu: "250m"
               memory: "128Mi"
           env:
+            - name: MESSAGE
+              valueFrom:
+                configMapKeyRef:
+                  name: log-output-configmap
+                  key: MESSAGE
             - name: PORT
               value: "3000"
+            - name: INFORMATION_FILE
+              value: /etc/config/information.txt
             - name: LOG_FILE
               value: /shared/log.txt
             - name: PING_PONG_URL
@@ -54,6 +62,15 @@ spec:
             - name: log-data
               mountPath: /shared
               readOnly: true
+            - name: config-data
+              mountPath: /etc/config
+              readOnly: true
       volumes:
         - name: log-data
           emptyDir: {}
+        - name: config-data
+          configMap:
+            name: log-output-configmap
+            items:
+              - key: information.txt
+                path: information.txt
