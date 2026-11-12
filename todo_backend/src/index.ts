@@ -1,7 +1,9 @@
 import { createApp, parsePort } from './server.js';
+import { loadConfig } from './config.js';
 
 try {
   const port = parsePort(process.env.PORT);
+  const config = loadConfig(process.env);
   const server = createApp();
 
   server.on('error', (error: Error) => {
@@ -11,12 +13,12 @@ try {
 
   function shutdown(): void {
     server.close();
-    setTimeout(() => server.closeAllConnections(), 10_000).unref();
+    setTimeout(() => server.closeAllConnections(), config.shutdownTimeoutMs).unref();
   }
   process.once('SIGINT', shutdown);
   process.once('SIGTERM', shutdown);
 
-  server.listen(port, '0.0.0.0', () => {
+  server.listen(port, config.host, () => {
     const address = server.address();
     if (address !== null && typeof address !== 'string') {
       console.log(`Server started in port ${address.port}`);

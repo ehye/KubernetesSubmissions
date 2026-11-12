@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: todo-app-config
+  namespace: project
+data:
+  HOST: "0.0.0.0"
+  PORT: "3000"
+  IMAGE_CACHE_FILE: /shared/todo-image/image.jpg
+  PICSUM_URL: https://picsum.photos/1200
+  TODO_BACKEND_URL: http://todo-backend-svc:2345
+  IMAGE_CACHE_DURATION_MS: "600000"
+  IMAGE_TIMEOUT_MS: "15000"
+  BACKEND_TIMEOUT_MS: "3000"
+  IMAGE_RETRY_AFTER_SECONDS: "5"
+  SHUTDOWN_TIMEOUT_MS: "10000"
+  ENABLE_SHUTDOWN_TEST: "false"

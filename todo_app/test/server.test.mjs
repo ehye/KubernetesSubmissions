@@ -3,17 +3,19 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { createInterface } from 'node:readline';
 import test from 'node:test';
-import { createApp, parsePort } from '../dist/server.js';
+import { parsePort } from '../dist/server.js';
+import { createApp, testEnv } from './helpers.mjs';
 
-test('PORT defaults to 3000 and accepts configured ports', () => {
-  assert.equal(parsePort(undefined), 3000);
+test('PORT is required and accepts configured ports', () => {
+  assert.throws(() => parsePort(undefined), /PORT is required/);
   assert.equal(parsePort('8080'), 8080);
   assert.equal(parsePort('65535'), 65535);
   assert.equal(parsePort('0'), 0);
 });
 
 test('rejects invalid PORT values', () => {
-  for (const value of ['', ' ', '-1', '65536', '3.5', '8080abc', 'NaN', 'Infinity']) {
+  assert.throws(() => parsePort(''), /PORT is required/);
+  for (const value of [' ', '-1', '65536', '3.5', '8080abc', 'NaN', 'Infinity']) {
     assert.throws(() => parsePort(value), /PORT must be an integer/);
   }
 });
@@ -62,7 +64,7 @@ for (const signal of ['SIGTERM', 'SIGINT']) {
   test(`logs the actual listening port and exits cleanly on ${signal}`, { timeout: 5000 }, async t => {
     const child = spawn(process.execPath, ['dist/index.js'], {
       cwd: new URL('../', import.meta.url),
-      env: { ...process.env, PORT: '0' },
+      env: { ...process.env, ...testEnv },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     t.after(() => {

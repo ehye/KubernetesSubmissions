@@ -2,18 +2,20 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
-export const IMAGE_CACHE_DURATION_MS = 10 * 60 * 1000;
-
 interface ImageCacheOptions {
   filePath: string;
-  imageUrl?: string;
+  imageUrl: string;
+  cacheDurationMs: number;
+  timeoutMs: number;
   now?: () => number;
   fetchImage?: typeof fetch;
 }
 
 export function createImageCache({
   filePath,
-  imageUrl = 'https://picsum.photos/1200',
+  imageUrl,
+  cacheDurationMs,
+  timeoutMs,
   now = Date.now,
   fetchImage = fetch,
 }: ImageCacheOptions) {
@@ -26,7 +28,7 @@ export function createImageCache({
       const content = await readFile(filePath);
       if (content.length > 0) {
         cached = content;
-        if (now() - metadata.mtimeMs < IMAGE_CACHE_DURATION_MS) return cached;
+        if (now() - metadata.mtimeMs < cacheDurationMs) return cached;
       }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
@@ -35,7 +37,7 @@ export function createImageCache({
     try {
       const url = new URL(imageUrl);
       url.searchParams.set('random', randomUUID());
-      const response = await fetchImage(url, { signal: AbortSignal.timeout(15_000) });
+      const response = await fetchImage(url, { signal: AbortSignal.timeout(timeoutMs) });
       if (!response.ok || response.headers.get('content-type')?.split(';')[0] !== 'image/jpeg') {
         throw new Error('Picsum did not return a JPEG image');
       }

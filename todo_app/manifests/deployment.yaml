@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: todo-app
-          image: todo-app:2.2
+          image: todo-app:2.6
           resources:
             requests:
               cpu: "50m"
@@ -25,15 +25,9 @@ spec:
             limits:
               cpu: "250m"
               memory: "128Mi"
-          env:
-            - name: PORT
-              value: "3000"
-            - name: IMAGE_CACHE_FILE
-              value: /shared/todo-image/image.jpg
-            - name: TODO_BACKEND_URL
-              value: http://todo-backend-svc:2345
-            - name: ENABLE_SHUTDOWN_TEST
-              value: "false"
+          envFrom:
+            - configMapRef:
+                name: todo-app-config
           ports:
             - containerPort: 3000
           volumeMounts:

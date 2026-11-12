@@ -1,13 +1,10 @@
 import { createApp, parsePort } from './server.js';
+import { loadConfig } from './config.js';
 
 try {
   const port = parsePort(process.env.PORT);
-  const server = createApp({
-    imagePath: process.env.IMAGE_CACHE_FILE,
-    imageUrl: process.env.PICSUM_URL,
-    backendUrl: process.env.TODO_BACKEND_URL,
-    enableShutdownTest: process.env.ENABLE_SHUTDOWN_TEST === 'true',
-  });
+  const config = loadConfig(process.env);
+  const server = createApp(config);
 
   server.on('error', (error: Error) => {
     console.error(`Server failed: ${error.message}`);
@@ -17,13 +14,13 @@ try {
   function shutdown(): void {
     server.close();
     // Bound shutdown time so active connections cannot delay Kubernetes termination indefinitely.
-    setTimeout(() => server.closeAllConnections(), 10_000).unref();
+    setTimeout(() => server.closeAllConnections(), config.shutdownTimeoutMs).unref();
   }
 
   process.once('SIGINT', shutdown);
   process.once('SIGTERM', shutdown);
 
-  server.listen(port, '0.0.0.0', () => {
+  server.listen(port, config.host, () => {
     const address = server.address();
     if (address !== null && typeof address !== 'string') {
       console.log(`Server started in port ${address.port}`);

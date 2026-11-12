@@ -7,8 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import test from 'node:test';
-import { createImageCache, IMAGE_CACHE_DURATION_MS } from '../dist/image-cache.js';
-import { createApp } from '../dist/server.js';
+import { createImageCache, IMAGE_CACHE_DURATION_MS, createApp, testEnv } from './helpers.mjs';
 
 const imageOne = Buffer.from([0xff, 0xd8, 1, 0xff, 0xd9]);
 const imageTwo = Buffer.from([0xff, 0xd8, 2, 0xff, 0xd9]);
@@ -32,8 +31,8 @@ test('downloads once, persists the image, and reuses it after cache recreation',
   let downloads = 0;
   const fetchImage = async url => {
     downloads++;
-    assert.equal(url.origin, 'https://picsum.photos');
-    assert.equal(url.pathname, '/1200');
+    assert.equal(url.origin, new URL(testEnv.PICSUM_URL).origin);
+    assert.equal(url.pathname, new URL(testEnv.PICSUM_URL).pathname);
     assert.ok(url.searchParams.has('random'));
     return imageResponse(imageOne);
   };
@@ -226,6 +225,7 @@ test('cached image survives a test crash without another upstream request', { ti
       cwd: new URL('../', import.meta.url),
       env: {
         ...process.env,
+        ...testEnv,
         PORT: '0',
         IMAGE_CACHE_FILE: filePath,
         PICSUM_URL: upstream,
