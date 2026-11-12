@@ -7,7 +7,7 @@ interface Todo {
 }
 
 export function parsePort(value: string | undefined): number {
-  if (value === undefined) return 3000;
+  if (value === undefined || value === '') throw new Error('PORT is required');
   if (!/^\d+$/.test(value) || !Number.isInteger(Number(value)) || Number(value) > 65535) {
     throw new Error('PORT must be an integer between 0 and 65535');
   }

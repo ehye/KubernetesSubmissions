@@ -10,16 +10,24 @@ from Picsum. The todo list and Send button use the separate
 ```sh
 pnpm install --frozen-lockfile
 pnpm build
-TODO_BACKEND_URL=http://127.0.0.1:3001 PORT=8080 pnpm start
+HOST=127.0.0.1 PORT=8080 \
+IMAGE_CACHE_FILE=./data/todo-image/image.jpg \
+PICSUM_URL=https://picsum.photos/1200 \
+TODO_BACKEND_URL=http://127.0.0.1:3001 \
+IMAGE_CACHE_DURATION_MS=600000 IMAGE_TIMEOUT_MS=15000 \
+BACKEND_TIMEOUT_MS=3000 SHUTDOWN_TIMEOUT_MS=10000 \
+IMAGE_RETRY_AFTER_SECONDS=5 \
+ENABLE_SHUTDOWN_TEST=false pnpm start
 ```
 
-Open `http://127.0.0.1:8080/`. `PORT` defaults to `3000` when not specified.
+Open `http://127.0.0.1:8080/`. All runtime settings above are required;
+missing or invalid settings cause a clear startup error rather than a fallback.
 Use `pnpm test` to run the tests.
 
 First start `todo_backend/` on port `3001`. The frontend loads todos from
 `GET /todos` and sends `POST /todos` with JSON when the form is submitted.
-Its Node server forwards those requests to `TODO_BACKEND_URL` (locally defaulting
-to `http://127.0.0.1:3001`). In Kubernetes the Deployment sets it to
+Its Node server forwards those requests to `TODO_BACKEND_URL`.
+In Kubernetes `manifests/configmap.yaml` sets it to
 `http://todo-backend-svc:2345`, which forwards to backend port `3000`.
 
 The browser always uses relative `/todos` URLs; it does not contact a Kubernetes
@@ -43,8 +51,16 @@ frontend's persistent image cache is separate and unchanged.
 - If refresh fails, serve the previous image. If there is no cached image,
   `/image` returns `503` and can be retried.
 
-`IMAGE_CACHE_FILE` overrides the image file path. `PICSUM_URL` optionally overrides
-the source URL (useful for a local test server). Downloads time out after 15 seconds.
+`IMAGE_CACHE_FILE` supplies the file path and `PICSUM_URL` supplies the source URL.
+`IMAGE_CACHE_DURATION_MS`, `IMAGE_TIMEOUT_MS`, and `BACKEND_TIMEOUT_MS` control
+cache lifetime and request timeouts. `HOST`, `PORT`, `SHUTDOWN_TIMEOUT_MS`, and
+`ENABLE_SHUTDOWN_TEST` control listening and shutdown behavior.
+`IMAGE_RETRY_AFTER_SECONDS` supplies the retry hint when no cached image is available.
+
+The Deployment imports these settings from `todo-app-config` with `envFrom`.
+After editing the ConfigMap, apply it and restart the Deployment so new Pods
+receive the changed environment. Relative browser routes such as `/todos` and
+the 140-character validation rule remain application logic, not deployment settings.
 
 ## k3d deployment
 
@@ -56,15 +72,17 @@ that cluster. First prepare the existing PV/PVC and its directory using the
 docker build -t todo-backend:2.2 ./todo_backend
 docker build -t todo-app:2.2 ./todo_app
 k3d image import todo-backend:2.2 todo-app:2.2 -c <cluster-name>
-kubectl -n default apply -f todo_backend/manifests/
-kubectl -n default rollout status deployment/todo-backend-dep
-kubectl -n default apply -f todo_app/manifests/
-kubectl -n default rollout status deployment/todo-app-dep
-kubectl -n default logs -f deployment/todo-app-dep
+kubectl -n project apply -f todo_backend/manifests/
+kubectl -n project rollout restart deployment/todo-backend-dep
+kubectl -n project rollout status deployment/todo-backend-dep
+kubectl -n project apply -f todo_app/manifests/
+kubectl -n project rollout restart deployment/todo-app-dep
+kubectl -n project rollout status deployment/todo-app-dep
+kubectl -n project logs -f deployment/todo-app-dep
 ```
 
 With the existing Ingress and k3d port mapping, open `http://127.0.0.1:8081/`.
-Todo mounts `shared-data-pvc` in the same namespace as the other applications,
+Todo mounts `shared-data-pvc` in the `project` namespace,
 but only writes inside `todo-image/`. It uses one replica with `Recreate` to avoid
 overlapping image downloads during deployment updates. No extra PV/PVC is needed.
 
@@ -74,16 +92,16 @@ The test-only endpoint is disabled by default. **While enabled, anyone who can
 reach the app can stop it**, so use it only for this exercise and disable it after testing.
 
 ```sh
-kubectl -n default set env deployment/todo-app-dep ENABLE_SHUTDOWN_TEST=true
-kubectl -n default rollout status deployment/todo-app-dep
+kubectl -n project set env deployment/todo-app-dep ENABLE_SHUTDOWN_TEST=true
+kubectl -n project rollout status deployment/todo-app-dep
 
 # Populate the cache and record its checksum.
 curl -f http://127.0.0.1:8081/image -o /dev/null
-kubectl -n default exec deployment/todo-app-dep -- sha256sum /shared/todo-image/image.jpg
+kubectl -n project exec deployment/todo-app-dep -- sha256sum /shared/todo-image/image.jpg
 
 # Responds with 202, then immediately exits the process with code 1.
 curl -X POST http://127.0.0.1:8081/_test/shutdown
-kubectl -n default get pods -l app=todo-app --watch
+kubectl -n project get pods -l app=todo-app --watch
 ```
 
 Kubernetes restarts the container. Once it is running, stop watching with Ctrl+C,
@@ -92,11 +110,12 @@ it should be unchanged and no new image is downloaded. Repeated crashes may caus
 Kubernetes to delay restarts.
 
 ```sh
-kubectl -n default exec deployment/todo-app-dep -- sha256sum /shared/todo-image/image.jpg
-kubectl -n default set env deployment/todo-app-dep ENABLE_SHUTDOWN_TEST=false
-kubectl -n default rollout status deployment/todo-app-dep
+kubectl -n project exec deployment/todo-app-dep -- sha256sum /shared/todo-image/image.jpg
+kubectl -n project set env deployment/todo-app-dep ENABLE_SHUTDOWN_TEST=false
+kubectl -n project rollout status deployment/todo-app-dep
 ```
 
-For local testing, start with `ENABLE_SHUTDOWN_TEST=true PORT=8080 pnpm start`,
+For local testing, use the full environment from the Run example with
+`ENABLE_SHUTDOWN_TEST=true`,
 then POST to `http://127.0.0.1:8080/_test/shutdown` and start the app again using
 the same cache path. A local process is not automatically restarted by Kubernetes.

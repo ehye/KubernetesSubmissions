@@ -4,7 +4,7 @@ import { todoClientScript } from './client.js';
 import { proxyTodos } from './todos-proxy.js';
 
 export function parsePort(value: string | undefined): number {
-  if (value === undefined) return 3000;
+  if (value === undefined || value === '') throw new Error('PORT is required');
 
   if (!/^\d+$/.test(value) || !Number.isInteger(Number(value)) || Number(value) > 65535) {
     throw new Error('PORT must be an integer between 0 and 65535');
@@ -14,27 +14,35 @@ export function parsePort(value: string | undefined): number {
 }
 
 interface AppOptions {
-  imagePath?: string;
-  imageUrl?: string;
-  backendUrl?: string;
-  enableShutdownTest?: boolean;
+  imagePath: string;
+  imageUrl: string;
+  backendUrl: string;
+  cacheDurationMs: number;
+  imageTimeoutMs: number;
+  backendTimeoutMs: number;
+  imageRetryAfterSeconds: number;
+  enableShutdownTest: boolean;
   onShutdown?: () => void;
 }
 
 export function createApp({
-  imagePath = './data/todo-image/image.jpg',
+  imagePath,
   imageUrl,
-  backendUrl = 'http://127.0.0.1:3001',
-  enableShutdownTest = false,
+  backendUrl,
+  cacheDurationMs,
+  imageTimeoutMs,
+  backendTimeoutMs,
+  imageRetryAfterSeconds,
+  enableShutdownTest,
   onShutdown = () => process.exit(1),
-}: AppOptions = {}) {
-  const getImage = createImageCache({ filePath: imagePath, imageUrl });
+}: AppOptions) {
+  const getImage = createImageCache({ filePath: imagePath, imageUrl, cacheDurationMs, timeoutMs: imageTimeoutMs });
 
   return createServer(async (request, response) => {
     const path = request.url?.split('?')[0];
 
     if (path === '/todos') {
-      await proxyTodos(request, response, backendUrl);
+      await proxyTodos(request, response, backendUrl, backendTimeoutMs);
       return;
     }
 
@@ -68,7 +76,7 @@ export function createApp({
         response.writeHead(503, {
           'Content-Type': 'text/plain; charset=utf-8',
           'Cache-Control': 'no-store',
-          'Retry-After': '5',
+          'Retry-After': String(imageRetryAfterSeconds),
         });
         response.end('Image is temporarily unavailable\n');
       }

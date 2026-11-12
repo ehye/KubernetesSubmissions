@@ -23,10 +23,12 @@ From `todo_backend/`, using Node.js 26.13.0 and pnpm 12.16.1:
 pnpm install --frozen-lockfile
 pnpm test
 pnpm build
-PORT=3001 pnpm start
+HOST=127.0.0.1 PORT=3001 SHUTDOWN_TIMEOUT_MS=10000 pnpm start
 ```
 
-`PORT` defaults to `3000`; use `3001` when running beside the frontend locally.
+`HOST`, `PORT`, and `SHUTDOWN_TIMEOUT_MS` are required environment variables.
+The Deployment supplies them explicitly; there are no source-code defaults.
+Use port `3001` when running beside the frontend locally.
 
 ```sh
 curl http://127.0.0.1:3001/todos
@@ -56,10 +58,12 @@ From the repository root, with kubectl targeting the same cluster as the import:
 docker build -t todo-backend:2.2 ./todo_backend
 docker build -t todo-app:2.2 ./todo_app
 k3d image import todo-backend:2.2 todo-app:2.2 -c <cluster-name>
-kubectl -n default apply -f todo_backend/manifests/
-kubectl -n default rollout status deployment/todo-backend-dep
-kubectl -n default apply -f todo_app/manifests/
-kubectl -n default rollout status deployment/todo-app-dep
+kubectl -n project apply -f todo_backend/manifests/
+kubectl -n project rollout restart deployment/todo-backend-dep
+kubectl -n project rollout status deployment/todo-backend-dep
+kubectl -n project apply -f todo_app/manifests/
+kubectl -n project rollout restart deployment/todo-app-dep
+kubectl -n project rollout status deployment/todo-app-dep
 ```
 
 The frontend still needs its existing image-cache PVC; see the

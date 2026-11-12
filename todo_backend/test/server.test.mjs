@@ -24,7 +24,7 @@ function createTodo(base, text) {
 async function startProcess(t) {
   const child = spawn(process.execPath, ['dist/index.js'], {
     cwd: new URL('../', import.meta.url),
-    env: { ...process.env, PORT: '0' },
+    env: { ...process.env, PORT: '0', HOST: '127.0.0.1', SHUTDOWN_TIMEOUT_MS: '10000' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   t.after(async () => {
@@ -48,11 +48,12 @@ async function stopProcess(child, signal = 'SIGTERM') {
   assert.deepEqual(await exited, [0, null]);
 }
 
-test('validates PORT and defaults to 3000', () => {
-  assert.equal(parsePort(undefined), 3000);
+test('validates PORT and requires an explicit value', () => {
+  assert.throws(() => parsePort(undefined), /PORT is required/);
   assert.equal(parsePort('3001'), 3001);
   assert.equal(parsePort('0'), 0);
-  for (const value of ['', ' ', '-1', '65536', '3.5', '3000abc', 'NaN']) {
+  assert.throws(() => parsePort(''), /PORT is required/);
+  for (const value of [' ', '-1', '65536', '3.5', '3000abc', 'NaN']) {
     assert.throws(() => parsePort(value), /PORT must be an integer/);
   }
 });

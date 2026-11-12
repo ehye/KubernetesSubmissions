@@ -6,7 +6,7 @@ import { createInterface } from 'node:readline';
 import { runInNewContext } from 'node:vm';
 import test from 'node:test';
 import { todoClientScript } from '../dist/client.js';
-import { createApp } from '../dist/server.js';
+import { createApp, testEnv } from './helpers.mjs';
 
 async function listen(t, server) {
   t.after(() => { server.closeAllConnections(); server.close(); });
@@ -114,7 +114,7 @@ test('server process reads TODO_BACKEND_URL', { timeout: 5000 }, async t => {
   const backend = await backendStub(t, { status: 200, body: [{ id: 'one', text: 'Read' }] });
   const child = spawn(process.execPath, ['dist/index.js'], {
     cwd: new URL('../', import.meta.url),
-    env: { ...process.env, PORT: '0', TODO_BACKEND_URL: backend.url },
+    env: { ...process.env, ...testEnv, TODO_BACKEND_URL: backend.url },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   t.after(async () => {

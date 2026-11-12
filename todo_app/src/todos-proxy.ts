@@ -8,7 +8,7 @@ function sendJson(response: ServerResponse, status: number, body: unknown): void
   response.end(JSON.stringify(body));
 }
 
-export async function proxyTodos(request: IncomingMessage, response: ServerResponse, backendUrl: string): Promise<void> {
+export async function proxyTodos(request: IncomingMessage, response: ServerResponse, backendUrl: string, timeoutMs: number): Promise<void> {
   if (request.method !== 'GET' && request.method !== 'POST') {
     response.setHeader('Allow', 'GET, POST');
     sendJson(response, 405, { error: 'Method not allowed' });
@@ -35,7 +35,7 @@ export async function proxyTodos(request: IncomingMessage, response: ServerRespo
       method: request.method,
       headers: request.method === 'POST' ? { 'Content-Type': request.headers['content-type'] ?? 'application/octet-stream' } : undefined,
       body,
-      signal: AbortSignal.timeout(3_000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     const content = await upstream.text();
     if (upstream.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json') {
