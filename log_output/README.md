@@ -12,7 +12,7 @@ Its two containers still share the latest log line through a Pod-local `emptyDir
 Only the latest line is stored, not a growing history. Restarting the writer
 generates a new UUID; restarting the reader does not change the file. The shared
 log file survives container restarts but is lost when the Pod is replaced.
-Ping-pong keeps its count in memory, so restarting Ping-pong resets the count.
+Ping-pong stores its count in PostgreSQL, so restarting Ping-pong preserves it.
 
 ### Run
 
@@ -95,7 +95,8 @@ only the reader, so running it alone requires a file supplied by a writer.
 ### k3d deployment
 
 Follow the [Ping-pong deployment guide](../ping_pong/README.md) to build and
-deploy both applications. Neither needs a PV/PVC. From `log_output/`:
+deploy both applications and PostgreSQL. Only PostgreSQL needs a PVC; neither
+Log output container mounts database storage. From `log_output/`:
 
 ```sh
 k3d image import log-output:2.5 -c <cluster-name>
@@ -122,3 +123,14 @@ port `3000`. No NodePort Service is needed.
 
 The writer also logs each successfully published line to stdout. Each writer
 process (and therefore each Pod replica) generates its own UUID.
+
+## PostgreSQL for the Ping-pong counter
+
+`manifests/postgres.yaml` defines PostgreSQL 18 as a one-replica StatefulSet
+named `ping-pong-postgres` in `exercises`, plus its ConfigMap and headless
+Service. Its separate 1 GiB PVC uses the k3d `local-path` StorageClass. The volume
+is mounted at `/var/lib/postgresql`, matching PostgreSQL 18's data layout.
+
+Ping-pong connects to this database; Log output still calls Ping-pong's `/pings`
+over HTTP. See [Ping-pong deployment instructions](../ping_pong/README.md).
+Todo is unchanged and still stores todos in memory.

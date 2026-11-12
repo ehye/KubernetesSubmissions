@@ -2,6 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ping-pong-dep
+  namespace: exercises
 spec:
   replicas: 1
   strategy:
@@ -16,7 +17,7 @@ spec:
     spec:
       containers:
         - name: ping-pong
-          image: ping-pong:2.1
+          image: ping-pong:2.7
           resources:
             requests:
               cpu: "50m"
@@ -27,5 +28,24 @@ spec:
           env:
             - name: PORT
               value: "3000"
+            - name: PGHOST
+              value: ping-pong-postgres-svc
+            - name: PGPORT
+              value: "5432"
+            - name: PGDATABASE
+              valueFrom:
+                configMapKeyRef:
+                  name: ping-pong-postgres-config
+                  key: POSTGRES_DB
+            - name: PGUSER
+              valueFrom:
+                configMapKeyRef:
+                  name: ping-pong-postgres-config
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ping-pong-postgres-secret
+                  key: POSTGRES_PASSWORD
           ports:
             - containerPort: 3000

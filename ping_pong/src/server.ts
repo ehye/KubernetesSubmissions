@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import type { Counter } from './counter.js';
 
 export function parsePort(value: string | undefined): number {
   if (value === undefined) return 3000;
@@ -10,10 +11,8 @@ export function parsePort(value: string | undefined): number {
   return Number(value);
 }
 
-export function createApp() {
-  let counter = 0n;
-
-  return createServer((request, response) => {
+export function createApp(counter: Counter) {
+  return createServer(async (request, response) => {
     const path = request.url?.split('?')[0];
     if (path !== '/pingpong' && path !== '/pings') {
       response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
@@ -30,10 +29,21 @@ export function createApp() {
       return;
     }
 
-    response.writeHead(200, {
-      'Content-Type': 'text/plain; charset=utf-8',
-      'Cache-Control': 'no-store',
-    });
-    response.end(path === '/pings' ? `${counter}` : `pong ${counter++}`);
+    try {
+      const value = path === '/pings' ? await counter.read() : await counter.increment();
+      response.writeHead(200, {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Cache-Control': 'no-store',
+      });
+      response.end(path === '/pings' ? value : `pong ${value}`);
+    } catch {
+      console.error('Unable to access the PostgreSQL counter');
+      response.writeHead(503, {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Cache-Control': 'no-store',
+        'Retry-After': '1',
+      });
+      response.end('Counter database is temporarily unavailable');
+    }
   });
 }
