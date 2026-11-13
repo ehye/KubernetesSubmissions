@@ -133,4 +133,4 @@ is mounted at `/var/lib/postgresql`, matching PostgreSQL 18's data layout.
 
 Ping-pong connects to this database; Log output still calls Ping-pong's `/pings`
 over HTTP. See [Ping-pong deployment instructions](../ping_pong/README.md).
-Todo is unchanged and still stores todos in memory.
+Todo uses its own separate PostgreSQL database in the `project` namespace.

@@ -1,10 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 
-interface Todo {
-  id: string;
-  text: string;
-}
+import type { TodoStore } from './database.js';
 
 export function parsePort(value: string | undefined): number {
   if (value === undefined || value === '') throw new Error('PORT is required');
@@ -33,17 +30,19 @@ async function readBody(request: IncomingMessage): Promise<string | null> {
   return size > 8_192 ? null : Buffer.concat(chunks).toString('utf8');
 }
 
-export function createApp() {
-  // Each backend process owns its list. A database can replace this storage later.
-  const todos: Todo[] = [];
-
+export function createApp(todos: TodoStore) {
   return createServer(async (request, response) => {
     if (request.url?.split('?')[0] !== '/todos') {
       sendJson(response, 404, { error: 'Not found' });
       return;
     }
     if (request.method === 'GET') {
-      sendJson(response, 200, todos);
+      try {
+        sendJson(response, 200, await todos.list());
+      } catch {
+        console.error('Unable to read todos from PostgreSQL');
+        sendJson(response, 503, { error: 'Todo database is temporarily unavailable' });
+      }
       return;
     }
     if (request.method !== 'POST') {
@@ -80,11 +79,10 @@ export function createApp() {
         return;
       }
       const todo = { id: randomUUID(), text };
-      todos.push(todo);
-      sendJson(response, 201, todo);
-    } catch (error) {
-      console.error(error);
-      if (!response.destroyed) sendJson(response, 500, { error: 'Unable to create todo' });
+      sendJson(response, 201, await todos.create(todo));
+    } catch {
+      console.error('Unable to create todo in PostgreSQL');
+      if (!response.destroyed) sendJson(response, 503, { error: 'Todo database is temporarily unavailable' });
     }
   });
 }

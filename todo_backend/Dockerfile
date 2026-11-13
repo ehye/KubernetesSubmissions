@@ -9,6 +9,7 @@ RUN pnpm install --frozen-lockfile
 COPY tsconfig.json ./
 COPY src ./src
 RUN pnpm build
+RUN pnpm prune --prod
 
 FROM node:26.13.0-alpine AS runtime
 
@@ -17,6 +18,7 @@ WORKDIR /app
 
 COPY --from=build --chown=node:node /app/package.json ./package.json
 COPY --from=build --chown=node:node /app/dist ./dist
+COPY --from=build --chown=node:node /app/node_modules ./node_modules
 
 USER node
 EXPOSE 3000

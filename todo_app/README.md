@@ -33,7 +33,7 @@ In Kubernetes `manifests/configmap.yaml` sets it to
 The browser always uses relative `/todos` URLs; it does not contact a Kubernetes
 Service name directly. Todo text is limited to 140 characters in both apps and
 rendered as text, not HTML. The page shows loading, empty-list, and backend errors.
-The backend starts with an empty list and loses its todos on restart. The
+The backend stores todos in PostgreSQL and preserves them on restart. The
 frontend's persistent image cache is separate and unchanged.
 
 ## Ten-minute image cache
@@ -68,10 +68,13 @@ Run from the repository root. Replace `<cluster-name>` and ensure kubectl target
 that cluster. First prepare the existing PV/PVC and its directory using the
 [storage guide](../storage/README.md).
 
+First create the PostgreSQL password Secret and start the database using the
+[backend deployment instructions](../todo_backend/README.md#kubernetes).
+
 ```sh
-docker build -t todo-backend:2.2 ./todo_backend
-docker build -t todo-app:2.2 ./todo_app
-k3d image import todo-backend:2.2 todo-app:2.2 -c <cluster-name>
+docker build -t todo-backend:2.8 ./todo_backend
+docker build -t todo-app:2.6 ./todo_app
+k3d image import todo-backend:2.8 todo-app:2.6 -c <cluster-name>
 kubectl -n project apply -f todo_backend/manifests/
 kubectl -n project rollout restart deployment/todo-backend-dep
 kubectl -n project rollout status deployment/todo-backend-dep
@@ -84,7 +87,8 @@ kubectl -n project logs -f deployment/todo-app-dep
 With the existing Ingress and k3d port mapping, open `http://127.0.0.1:8081/`.
 Todo mounts `shared-data-pvc` in the `project` namespace,
 but only writes inside `todo-image/`. It uses one replica with `Recreate` to avoid
-overlapping image downloads during deployment updates. No extra PV/PVC is needed.
+overlapping image downloads during deployment updates. PostgreSQL uses a separate
+PVC; it never mounts or modifies this image cache.
 
 ## Test a container crash
 
