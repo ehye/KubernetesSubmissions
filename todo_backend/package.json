@@ -11,6 +11,7 @@
     "dev": "node --watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
+    "reading-job": "node dist/reading-job.js",
     "test": "pnpm build && node --test"
   },
   "devDependencies": {
