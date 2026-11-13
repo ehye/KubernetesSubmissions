@@ -1,18 +1,24 @@
 import { createApp, parsePort } from './server.js';
 import { loadConfig } from './config.js';
+import { createDatabase } from './database.js';
 
+let database: ReturnType<typeof createDatabase> | undefined;
 try {
   const port = parsePort(process.env.PORT);
   const config = loadConfig(process.env);
-  const server = createApp();
+  database = createDatabase(process.env);
+  await database.initialize();
+  const store = database;
+  const server = createApp(store);
 
   server.on('error', (error: Error) => {
     console.error(`Server failed: ${error.message}`);
     process.exitCode = 1;
+    void store.close();
   });
 
   function shutdown(): void {
-    server.close();
+    server.close(() => { void store.close(); });
     setTimeout(() => server.closeAllConnections(), config.shutdownTimeoutMs).unref();
   }
   process.once('SIGINT', shutdown);
@@ -27,4 +33,5 @@ try {
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
+  await database?.close();
 }

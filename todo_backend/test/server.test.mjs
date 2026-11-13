@@ -4,9 +4,30 @@ import { once } from 'node:events';
 import { createInterface } from 'node:readline';
 import test from 'node:test';
 import { createApp, parsePort } from '../dist/server.js';
+import { createDatabase } from '../dist/database.js';
+import pg from 'pg';
 
-async function startApp(t) {
-  const server = createApp();
+const databaseTests = { skip: process.env.TEST_DATABASE !== '1', timeout: 15_000 };
+
+async function resetDatabase() {
+  const database = createDatabase(process.env);
+  try { await database.initialize(); } finally { await database.close(); }
+  const pool = new pg.Pool();
+  try { await pool.query('TRUNCATE todos RESTART IDENTITY'); } finally { await pool.end(); }
+}
+
+async function startApp(t, store) {
+  if (!store && process.env.TEST_DATABASE === '1') {
+    await resetDatabase();
+    store = createDatabase(process.env);
+    t.after(() => store.close());
+  }
+  if (!store) {
+    // In-memory fixture only for HTTP unit tests; production uses PostgreSQL.
+    const todos = [];
+    store = { list: async () => [...todos], create: async todo => { todos.push(todo); return todo; } };
+  }
+  const server = createApp(store);
   t.after(() => { server.closeAllConnections(); server.close(); });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -155,21 +176,70 @@ test('concurrent creates retain every todo with distinct IDs', { timeout: 5000 }
 });
 
 for (const signal of ['SIGTERM', 'SIGINT']) {
-  test(`shuts down cleanly on ${signal}`, { timeout: 5000 }, async t => {
+  test(`shuts down cleanly on ${signal}`, databaseTests, async t => {
+    await resetDatabase();
     const { child, base } = await startProcess(t);
     assert.deepEqual(await (await fetch(`${base}/todos`)).json(), []);
     await stopProcess(child, signal);
   });
 }
 
-test('process restart clears the in-memory todo list', { timeout: 10_000 }, async t => {
+test('process restart preserves saved todos and IDs', databaseTests, async t => {
+  await resetDatabase();
   const first = await startProcess(t);
-  const created = await createTodo(first.base, 'Temporary todo');
+  const created = await createTodo(first.base, 'Persistent todo');
   assert.equal(created.status, 201);
-  await created.json();
+  const todo = await created.json();
   assert.equal((await (await fetch(`${first.base}/todos`)).json()).length, 1);
   await stopProcess(first.child);
   const second = await startProcess(t);
-  assert.deepEqual(await (await fetch(`${second.base}/todos`)).json(), []);
+  assert.deepEqual(await (await fetch(`${second.base}/todos`)).json(), [todo]);
   await stopProcess(second.child);
+});
+
+test('database outages return JSON 503 for reads and writes, then recover', async t => {
+  t.mock.method(console, 'error', () => {});
+  let unavailable = true;
+  const store = {
+    list: async () => { if (unavailable) throw new Error('offline'); return []; },
+    create: async todo => { if (unavailable) throw new Error('offline'); return todo; },
+  };
+  const base = await startApp(t, store);
+  for (const response of [await fetch(`${base}/todos`), await createTodo(base, 'Keep me')]) {
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { error: 'Todo database is temporarily unavailable' });
+  }
+  unavailable = false;
+  assert.deepEqual(await (await fetch(`${base}/todos`)).json(), []);
+  assert.equal((await createTodo(base, 'Recovered')).status, 201);
+});
+
+test('database configuration is required and validated', () => {
+  const env = { PGHOST: 'localhost', PGPORT: '5432', PGDATABASE: 'todos', PGUSER: 'todo', PGPASSWORD: 'test', PGCONNECT_TIMEOUT_MS: '1000', PGSTATEMENT_TIMEOUT_MS: '1000' };
+  for (const name of Object.keys(env)) {
+    assert.throws(() => createDatabase({ ...env, [name]: undefined }), new RegExp(name));
+  }
+  for (const value of ['0', '-1', '65536', '1.5', 'abc']) {
+    assert.throws(() => createDatabase({ ...env, PGPORT: value }), /PGPORT/);
+  }
+  for (const name of ['PGCONNECT_TIMEOUT_MS', 'PGSTATEMENT_TIMEOUT_MS']) {
+    for (const value of ['0', '-1', '1.5', '2147483648']) {
+      assert.throws(() => createDatabase({ ...env, [name]: value }), new RegExp(name));
+    }
+  }
+});
+
+test('PostgreSQL initialization preserves ordered todos and SQL-like text is safe', databaseTests, async t => {
+  const base = await startApp(t);
+  const created = [];
+  for (const text of ["Don't forget", "'); DROP TABLE todos; --", '<script>alert(1)</script>', '🙂'.repeat(70)]) {
+    const response = await createTodo(base, text);
+    assert.equal(response.status, 201);
+    created.push(await response.json());
+  }
+  const database = createDatabase(process.env);
+  try {
+    await database.initialize();
+    assert.deepEqual(await database.list(), created);
+  } finally { await database.close(); }
 });

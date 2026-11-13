@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: todo-backend
-          image: todo-backend:2.6
+          image: todo-backend:2.8
           resources:
             requests:
               cpu: "50m"
@@ -32,5 +32,28 @@ spec:
               value: "10000"
             - name: PORT
               value: "3000"
+            - name: PGHOST
+              value: todo-postgres-svc
+            - name: PGPORT
+              value: "5432"
+            - name: PGCONNECT_TIMEOUT_MS
+              value: "1000"
+            - name: PGSTATEMENT_TIMEOUT_MS
+              value: "1000"
+            - name: PGDATABASE
+              valueFrom:
+                configMapKeyRef:
+                  name: todo-postgres-config
+                  key: POSTGRES_DB
+            - name: PGUSER
+              valueFrom:
+                configMapKeyRef:
+                  name: todo-postgres-config
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: todo-postgres-secret
+                  key: POSTGRES_PASSWORD
           ports:
             - containerPort: 3000
