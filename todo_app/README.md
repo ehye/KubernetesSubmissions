@@ -72,9 +72,9 @@ First create the PostgreSQL password Secret and start the database using the
 [backend deployment instructions](../todo_backend/README.md#kubernetes).
 
 ```sh
-docker build -t todo-backend:2.8 ./todo_backend
+docker build -t todo-backend:2.10 ./todo_backend
 docker build -t todo-app:2.6 ./todo_app
-k3d image import todo-backend:2.8 todo-app:2.6 -c <cluster-name>
+k3d image import todo-backend:2.10 todo-app:2.6 -c <cluster-name>
 kubectl -n project apply -f todo_backend/manifests/
 kubectl -n project rollout restart deployment/todo-backend-dep
 kubectl -n project rollout status deployment/todo-backend-dep

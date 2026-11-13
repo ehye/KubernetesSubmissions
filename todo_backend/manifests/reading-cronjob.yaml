@@ -30,7 +30,7 @@ spec:
           restartPolicy: Never
           containers:
             - name: reading-todo
-              image: todo-backend:2.9
+              image: todo-backend:2.10
               command: ["node", "dist/reading-job.js"]
               envFrom:
                 - configMapRef:

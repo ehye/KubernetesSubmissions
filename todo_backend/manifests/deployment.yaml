@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: todo-backend
-          image: todo-backend:2.9
+          image: todo-backend:2.10
           resources:
             requests:
               cpu: "50m"

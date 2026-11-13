@@ -3,6 +3,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 
 import type { TodoStore } from './database.js';
 
+const MAX_TODO_LENGTH = 140;
+
 export function parsePort(value: string | undefined): number {
   if (value === undefined || value === '') throw new Error('PORT is required');
   if (!/^\d+$/.test(value) || !Number.isInteger(Number(value)) || Number(value) > 65535) {
@@ -50,39 +52,66 @@ export function createApp(todos: TodoStore) {
       sendJson(response, 405, { error: 'Method not allowed' });
       return;
     }
+    const requestId = randomUUID();
+    response.setHeader('X-Request-ID', requestId);
+    let submittedText: string | undefined;
+    function respond(status: number, reason: string, body: unknown, todoId?: string): void {
+      // JSON encoding keeps user-provided newlines within a single log line.
+      // Raw bodies, headers, and credentials are deliberately not logged.
+      console.log(JSON.stringify({
+        timestamp: new Date().toISOString(),
+        event: 'todo_request',
+        requestId,
+        method: 'POST',
+        path: '/todos',
+        status,
+        outcome: status === 201 ? 'created' : status >= 500 ? 'failed' : 'rejected',
+        reason,
+        text: submittedText,
+        length: submittedText?.length,
+        maxLength: MAX_TODO_LENGTH,
+        todoId,
+      }));
+      if (!response.destroyed) sendJson(response, status, body);
+    }
     if (request.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json') {
       request.resume();
-      sendJson(response, 415, { error: 'Content-Type must be application/json' });
+      respond(415, 'unsupported_content_type', { error: 'Content-Type must be application/json' });
       return;
     }
 
+    let failureReason = 'request_read_failed';
     try {
       const raw = await readBody(request);
       if (raw === null) {
-        sendJson(response, 413, { error: 'Request body exceeds 8 KiB' });
+        respond(413, 'body_too_large', { error: 'Request body exceeds 8 KiB' });
         return;
       }
       let input: unknown;
       try {
         input = JSON.parse(raw);
       } catch {
-        sendJson(response, 400, { error: 'Invalid JSON' });
+        respond(400, 'invalid_json', { error: 'Invalid JSON' });
         return;
       }
       if (typeof input !== 'object' || input === null || !('text' in input) || typeof input.text !== 'string') {
-        sendJson(response, 400, { error: 'Todo text is required' });
+        respond(400, 'missing_text', { error: 'Todo text is required' });
         return;
       }
       const text = input.text.trim();
-      if (text.length === 0 || input.text.length > 140) {
-        sendJson(response, 400, { error: 'Todo text must contain 1 to 140 characters' });
+      submittedText = input.text;
+      if (text.length === 0 || input.text.length > MAX_TODO_LENGTH) {
+        respond(400, input.text.length > MAX_TODO_LENGTH ? 'too_long' : 'empty_text', {
+          error: `Todo text must contain 1 to ${MAX_TODO_LENGTH} characters`,
+        });
         return;
       }
       const todo = { id: randomUUID(), text };
-      sendJson(response, 201, await todos.create(todo));
+      failureReason = 'database_unavailable';
+      const saved = await todos.create(todo);
+      respond(201, 'created', saved, saved.id);
     } catch {
-      console.error('Unable to create todo in PostgreSQL');
-      if (!response.destroyed) sendJson(response, 503, { error: 'Todo database is temporarily unavailable' });
+      respond(503, failureReason, { error: 'Todo database is temporarily unavailable' });
     }
   });
 }
