@@ -70,9 +70,9 @@ server resolves this Kubernetes Service name; no CORS or extra Ingress is needed
 From the repository root, with kubectl targeting the same cluster as the import:
 
 ```sh
-docker build -t todo-backend:2.9 ./todo_backend
+docker build -t todo-backend:2.10 ./todo_backend
 docker build -t todo-app:2.6 ./todo_app
-k3d image import todo-backend:2.9 todo-app:2.6 -c <cluster-name>
+k3d image import todo-backend:2.10 todo-app:2.6 -c <cluster-name>
 
 # Create once; do not regenerate a password for an existing database.
 kubectl -n project create secret generic todo-postgres-secret \
@@ -127,11 +127,84 @@ kubectl -n project exec todo-postgres-0 -- \
   psql -U todo -d todos -c 'SELECT id, text FROM todos ORDER BY position;'
 ```
 
+## Request logs and rejected todos in Grafana
+
+Each `POST /todos` produces a single JSON line on stdout with timestamp,
+`requestId`, HTTP `status`, `outcome`, `reason`, submitted `text`/`length` when
+available, and the limit (`maxLength: 140`). Successful submissions also include
+`todoId`. Responses expose the same ID in `X-Request-ID`. This includes browser
+submissions and CronJob submissions, since both use the API.
+
+The backend validates the original input before trimming: 140 UTF-16 code units
+are accepted, 141 are rejected with `400` and `reason: too_long`, and no database
+insert occurs. This matches HTML `maxlength`, including its treatment of emoji.
+Other reasons include `empty_text`, `missing_text`, `invalid_json`,
+`unsupported_content_type`, `body_too_large`, and `database_unavailable`.
+Malformed/oversized bodies and request headers are not dumped into logs. JSON
+encoding escapes newlines to prevent submitted text from forging log lines.
+**Submitted todo text is visible to anyone who can access these logs.**
+
+Build/import the new backend image and update the Deployment:
+
+```sh
+docker build -t todo-backend:2.10 ./todo_backend
+k3d image import todo-backend:2.10 -c <cluster-name>
+kubectl -n project apply -f todo_backend/manifests/deployment.yaml
+kubectl -n project rollout status deployment/todo-backend-dep
+```
+
+Test rejection directly against the backend, bypassing the browser's input limit.
+In one terminal:
+
+```sh
+kubectl -n project port-forward service/todo-backend-svc 3001:2345
+```
+
+In another terminal, run this check (Node.js):
+
+```sh
+node --input-type=module <<'JS'
+import assert from 'node:assert/strict';
+const marker = 'GRAFANA_TOO_LONG_TEST ';
+const text = marker + 'x'.repeat(141 - marker.length);
+const response = await fetch('http://127.0.0.1:3001/todos', {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ text }),
+});
+assert.equal(response.status, 400);
+console.log('Rejected:', await response.json());
+console.log('Request ID:', response.headers.get('x-request-id'));
+const todos = await (await fetch('http://127.0.0.1:3001/todos')).json();
+assert.ok(!todos.some(todo => todo.text === text), 'Rejected todo must not be saved');
+JS
+```
+
+Inspect locally with `kubectl -n project logs deployment/todo-backend-dep`.
+Your monitoring setup collects Pod stdout using Alloy and sends it to Loki
+(tenant `1`). Grafana's Loki datasource is already configured for this tenant.
+Open **Explore**, select **Loki**, choose **Last 15 minutes**, then query:
+
+```logql
+{namespace="project", container="todo-backend"}
+| json
+| event="todo_request"
+| reason="too_long"
+```
+
+The rejected message, `length: 141`, `status: 400`, and request ID should appear.
+For a particular smoke-test message, add `| text=~"GRAFANA_TOO_LONG_TEST.*"`.
+Remove `| reason="too_long"` to see all submitted todos and their outcomes.
+If no results appear, confirm the new backend image is running, send the test
+request again, allow collection time, and check the time range and Alloy/Loki
+health. Labels were confirmed via Loki's label API; the new rejection log must
+be verified after deploying this change. No direct application-to-Loki client
+or extra logging library is needed.
+
 ## Hourly Wikipedia reading todo
 
 `manifests/reading-cronjob.yaml` defines `todo-reading`, scheduled at the start
 of every hour (`0 * * * *`, UTC). It runs `dist/reading-job.js` from the
-`todo-backend:2.9` image, shared with the backend Deployment.
+`todo-backend:2.10` image, shared with the backend Deployment.
 The job needs no database credentials: it calls the backend's POST `/todos` API.
 
 `todo-reading-config` supplies the Wikipedia random URL, `Accept-Language: en-US`,
@@ -152,8 +225,8 @@ bounds the overall run. Refresh the Todo page to see newly generated todos.
 Build/import and apply from the repository root after the backend is available:
 
 ```sh
-docker build -t todo-backend:2.9 ./todo_backend
-k3d image import todo-backend:2.9 -c <cluster-name>
+docker build -t todo-backend:2.10 ./todo_backend
+k3d image import todo-backend:2.10 -c <cluster-name>
 kubectl -n project apply -f todo_backend/manifests/reading-cronjob.yaml
 kubectl -n project get cronjob todo-reading
 ```
