@@ -70,9 +70,9 @@ server resolves this Kubernetes Service name; no CORS or extra Ingress is needed
 From the repository root, with kubectl targeting the same cluster as the import:
 
 ```sh
-docker build -t todo-backend:2.8 ./todo_backend
+docker build -t todo-backend:2.9 ./todo_backend
 docker build -t todo-app:2.6 ./todo_app
-k3d image import todo-backend:2.8 todo-app:2.6 -c <cluster-name>
+k3d image import todo-backend:2.9 todo-app:2.6 -c <cluster-name>
 
 # Create once; do not regenerate a password for an existing database.
 kubectl -n project create secret generic todo-postgres-secret \
@@ -125,4 +125,58 @@ kubectl -n project delete pod todo-postgres-0
 kubectl -n project rollout status statefulset/todo-postgres --timeout=120s
 kubectl -n project exec todo-postgres-0 -- \
   psql -U todo -d todos -c 'SELECT id, text FROM todos ORDER BY position;'
+```
+
+## Hourly Wikipedia reading todo
+
+`manifests/reading-cronjob.yaml` defines `todo-reading`, scheduled at the start
+of every hour (`0 * * * *`, UTC). It runs `dist/reading-job.js` from the
+`todo-backend:2.9` image, shared with the backend Deployment.
+The job needs no database credentials: it calls the backend's POST `/todos` API.
+
+`todo-reading-config` supplies the Wikipedia random URL, `Accept-Language: en-US`,
+User-Agent, Todo API URL, and request timeout. The job follows Wikipedia's
+redirects and creates plain text such as:
+
+```text
+Read https://en.wikipedia.org/wiki/Example_article
+```
+
+The browser does not turn this into a hyperlink; copy-paste the URL to read it.
+The saved URL identifies the selected article, not `Special:Random`. The usual
+140-character validation still applies to the entire `Read <URL>` text. If it is
+too long, the job requests another random article until one fits, without
+truncating URLs. Exactly 140 characters is accepted. The 60-second Job deadline
+bounds the overall run. Refresh the Todo page to see newly generated todos.
+
+Build/import and apply from the repository root after the backend is available:
+
+```sh
+docker build -t todo-backend:2.9 ./todo_backend
+k3d image import todo-backend:2.9 -c <cluster-name>
+kubectl -n project apply -f todo_backend/manifests/reading-cronjob.yaml
+kubectl -n project get cronjob todo-reading
+```
+
+Test immediately without waiting for the hour (choose a fresh Job name each time):
+
+```sh
+kubectl -n project create job --from=cronjob/todo-reading todo-reading-test
+kubectl -n project wait --for=condition=complete job/todo-reading-test --timeout=90s
+kubectl -n project logs job/todo-reading-test
+```
+
+Failures exit nonzero and appear in the Job logs. Runs have a 60-second deadline,
+cannot overlap other scheduled runs of this CronJob, and are not automatically
+retried. This reduces duplicate inserts, but CronJob scheduling is not exactly-once:
+an ambiguous POST failure or manually rerunning the job can still produce duplicates.
+Wikipedia must be reachable from the cluster; failures do not create fallback todos.
+
+To run locally after building:
+
+```sh
+WIKIPEDIA_RANDOM_URL=https://en.wikipedia.org/wiki/Special:Random \
+WIKIPEDIA_LANGUAGE=en-US \
+WIKIPEDIA_USER_AGENT='TodoReadingReminder/1.0 (https://github.com/ehye/KubernetesSubmissions)' \
+TODO_API_URL=http://127.0.0.1:3001/todos REQUEST_TIMEOUT_MS=15000 pnpm reading-job
 ```

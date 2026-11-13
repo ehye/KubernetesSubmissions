@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: todo-reading-config
+  namespace: project
+data:
+  WIKIPEDIA_RANDOM_URL: https://en.wikipedia.org/wiki/Special:Random
+  WIKIPEDIA_LANGUAGE: en-US
+  WIKIPEDIA_USER_AGENT: TodoReadingReminder/1.0 (https://github.com/ehye/KubernetesSubmissions)
+  TODO_API_URL: http://todo-backend-svc:2345/todos
+  REQUEST_TIMEOUT_MS: "15000"
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: todo-reading
+  namespace: project
+spec:
+  schedule: "0 * * * *"
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 60
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: reading-todo
+              image: todo-backend:2.9
+              command: ["node", "dist/reading-job.js"]
+              envFrom:
+                - configMapRef:
+                    name: todo-reading-config
+              resources:
+                requests:
+                  cpu: "10m"
+                  memory: "32Mi"
+                limits:
+                  cpu: "100m"
+                  memory: "128Mi"
