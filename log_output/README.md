@@ -97,27 +97,31 @@ only the reader, so running it alone requires a file supplied by a writer.
 Follow the [Ping-pong deployment guide](../ping_pong/README.md) to build and
 deploy both applications and PostgreSQL. Only PostgreSQL needs a PVC; neither
 Log output container mounts database storage. The manifests target GKE and use
-`ghcr.io/ehye/log-output:3.2` for both containers. Publish it using the manual
+`ghcr.io/ehye/log-output:3.3` for both containers. Publish it using the manual
 GitHub Actions workflow before deploying. For a local build only, from `log_output/`:
 
 ```sh
-docker build -t ghcr.io/ehye/log-output:3.2 .
+docker build -t ghcr.io/ehye/log-output:3.3 .
 ```
 
 In Kubernetes, `PING_PONG_URL` points to `http://ping-pong-svc:2345/pings`.
 Kubernetes resolves the Service name inside the namespace; this request does
-not go through Ingress. Only the reader listens on port `3000` and has an HTTP
+not go through Gateway. Only the reader listens on port `3000` and has an HTTP
 readiness probe on `/`. Todo still uses the existing PVC for its image
 cache: do not delete the PV/PVC or its files.
 
-Log output shares a GKE Ingress with Ping-pong: `/` goes to Log output and
+Log output shares a GKE Gateway with Ping-pong: `/` goes to Log output and
 `/pingpong` goes to Ping-pong without rewriting. Follow the
 [Ping-pong deployment guide](../ping_pong/README.md#deploy-to-gke-when-ready)
-for the ordered deployment steps: create healthy Pods before creating Ingress.
+for Gateway API enablement and the ordered migration steps. Remove the old
+Ingress before attaching its Services to Gateway; this migration has downtime.
 The old local Traefik entrypoint and host-port mapping do not apply on GKE.
 
-Traffic flows through Ingress `/` to `log-output-svc:2345`, then to the app on
-port `3000`. Both backend Services use NodePort behind the shared Ingress.
+Traffic flows through Gateway and HTTPRoute `/` to `log-output-svc:2345`, then
+to the app on port `3000`. Both backend Services use ClusterIP. The Gateway and
+route are in `manifests/gateway.yaml` and `manifests/route.yaml`. Each application's
+`manifests/healthcheckpolicy.yaml` checks `/` on Pod port 3000 explicitly because
+GKE Gateway does not infer health checks from readiness probes.
 
 The writer also logs each successfully published line to stdout. Each writer
 process (and therefore each Pod replica) generates its own UUID.
