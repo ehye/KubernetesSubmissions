@@ -54,15 +54,15 @@ for these tests.
 ## Prepare images for GKE
 
 Use **Actions → Build and publish image → Run workflow** to publish both
-`ping-pong:3.3` and `log-output:3.3` to GHCR. Select the branch containing these
+`ping-pong:3.4` and `log-output:3.4` to GHCR. Select the branch containing these
 changes so the Ping-pong image serves `/` and provides `/healthz`. Make both
 packages public, or configure pull credentials for private packages.
 
 To build locally without pushing or deploying:
 
 ```sh
-docker build -t ghcr.io/ehye/ping-pong:3.3 ./ping_pong
-docker build -t ghcr.io/ehye/log-output:3.3 ./log_output
+docker build -t ghcr.io/ehye/ping-pong:3.4 ./ping_pong
+docker build -t ghcr.io/ehye/log-output:3.4 ./log_output
 ```
 
 ## Deploy to GKE when ready
@@ -162,11 +162,13 @@ Both Services use `ClusterIP`. GKE Gateway manages the network endpoint groups
 
 | Browser URL | Application |
 | --- | --- |
-| `http://GATEWAY_IP/pingpong` | Ping-pong (exact path) |
+| `http://GATEWAY_IP/pingpong` | Ping-pong (prefix stripped) |
 | `http://GATEWAY_IP/` | Log output (prefix fallback) |
 
-The Ping-pong rule uses `URLRewrite` with `ReplaceFullPath` to forward the exact
-public `/pingpong` path as `/`. The application does not handle `/pingpong` itself.
+The Ping-pong rule uses `URLRewrite` with `ReplacePrefixMatch` to forward the
+public `/pingpong` prefix as `/`. GKE does not support `ReplaceFullPath` here.
+Subpaths such as `/pingpong/foo` reach Ping-pong as `/foo` (and return 404 unless
+the application supports them). The application does not handle `/pingpong` itself.
 Log output's `/` rule has no rewrite. Requests to `/pings` through Gateway fall back to Log
 output, not Ping-pong; Log output accesses `/pings` through the internal Service.
 Each Service has a `healthcheckpolicy.yaml` explicitly configuring Google's
