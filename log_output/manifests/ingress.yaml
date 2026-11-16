@@ -4,9 +4,8 @@ metadata:
   name: log-output-ingress
   namespace: exercises
   annotations:
-    traefik.ingress.kubernetes.io/router.entrypoints: log-output
+    kubernetes.io/ingress.class: gce
 spec:
-  ingressClassName: traefik
   rules:
     - http:
         paths:

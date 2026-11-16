@@ -92,34 +92,32 @@ Both containers use this image. The Deployment runs `node dist/writer.js` in the
 writer and `node dist/index.js` in the reader. The image's default command starts
 only the reader, so running it alone requires a file supplied by a writer.
 
-### k3d deployment
+### GKE deployment
 
 Follow the [Ping-pong deployment guide](../ping_pong/README.md) to build and
 deploy both applications and PostgreSQL. Only PostgreSQL needs a PVC; neither
-Log output container mounts database storage. From `log_output/`:
+Log output container mounts database storage. The manifests target GKE and use
+`ghcr.io/ehye/log-output:3.2` for both containers. Publish it using the manual
+GitHub Actions workflow before deploying. For a local build only, from `log_output/`:
 
 ```sh
-k3d image import log-output:2.5 -c <cluster-name>
-kubectl apply -f manifests/
-kubectl rollout status deployment/log-output-dep
-kubectl logs -f deployment/log-output-dep -c writer
+docker build -t ghcr.io/ehye/log-output:3.2 .
 ```
 
 In Kubernetes, `PING_PONG_URL` points to `http://ping-pong-svc:2345/pings`.
 Kubernetes resolves the Service name inside the namespace; this request does
-not go through Ingress. Only the reader listens on port `3000`, so Service and
-Ingress routing stay unchanged. Todo still uses the existing PVC for its image
+not go through Ingress. Only the reader listens on port `3000` and has an HTTP
+readiness probe on `/`. Todo still uses the existing PVC for its image
 cache: do not delete the PV/PVC or its files.
 
-Log output now shares an Ingress with Ping-pong on the dedicated Traefik
-`log-output` entrypoint. Follow the [Ping-pong deployment guide](../ping_pong/README.md)
-to configure this listener and deploy both applications. The existing cluster
-maps host port `8082` to load balancer port `30080`; with that configuration,
-open `http://127.0.0.1:8082/` for Log output or
-`http://127.0.0.1:8082/pingpong` for Ping-pong. Todo remains on port `8081`.
+Log output shares a GKE Ingress with Ping-pong: `/` goes to Log output and
+`/pingpong` goes to Ping-pong without rewriting. Follow the
+[Ping-pong deployment guide](../ping_pong/README.md#deploy-to-gke-when-ready)
+for the ordered deployment steps: create healthy Pods before creating Ingress.
+The old local Traefik entrypoint and host-port mapping do not apply on GKE.
 
 Traffic flows through Ingress `/` to `log-output-svc:2345`, then to the app on
-port `3000`. No NodePort Service is needed.
+port `3000`. Both backend Services use NodePort behind the shared Ingress.
 
 The writer also logs each successfully published line to stdout. Each writer
 process (and therefore each Pod replica) generates its own UUID.
@@ -128,7 +126,7 @@ process (and therefore each Pod replica) generates its own UUID.
 
 `manifests/postgres.yaml` defines PostgreSQL 18 as a one-replica StatefulSet
 named `ping-pong-postgres` in `exercises`, plus its ConfigMap and headless
-Service. Its separate 1 GiB PVC uses the k3d `local-path` StorageClass. The volume
+Service. Its separate 1 GiB PVC uses the cluster's default StorageClass. The volume
 is mounted at `/var/lib/postgresql`, matching PostgreSQL 18's data layout.
 
 Ping-pong connects to this database; Log output still calls Ping-pong's `/pings`
