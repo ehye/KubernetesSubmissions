@@ -54,27 +54,41 @@ for these tests.
 ## Prepare images for GKE
 
 Use **Actions → Build and publish image → Run workflow** to publish both
-`ping-pong:3.2` and `log-output:3.2` to GHCR. Select the branch containing these
+`ping-pong:3.3` and `log-output:3.3` to GHCR. Select the branch containing these
 changes so the Ping-pong image includes the new `/` health endpoint. Make both
 packages public, or configure pull credentials for private packages.
 
 To build locally without pushing or deploying:
 
 ```sh
-docker build -t ghcr.io/ehye/ping-pong:3.2 ./ping_pong
-docker build -t ghcr.io/ehye/log-output:3.2 ./log_output
+docker build -t ghcr.io/ehye/ping-pong:3.3 ./ping_pong
+docker build -t ghcr.io/ehye/log-output:3.3 ./log_output
 ```
 
 ## Deploy to GKE when ready
 
 Run from the repository root, after the images have been published. Verify the
 kubectl context before making changes. GKE's HTTP load balancing add-on must be
-enabled (normally the default). These commands provision billable cloud resources.
+enabled (normally the default), and the cluster must be VPC-native.
+
+Enable Gateway API before applying the manifests (this can take several minutes):
+
+```sh
+gcloud container clusters update CLUSTER_NAME \
+  --location=REGION_OR_ZONE --project=PROJECT_ID --gateway-api=standard
+```
+
+When migrating from 3.2, remove the existing Ingress before attaching these same
+Services to Gateway. GKE does not support a Service shared by Ingress and Gateway.
+This simple migration has downtime and provisions a new external IP. Removing
+`ingress.yaml` from Git does not delete the live resource.
 
 ```sh
 gcloud container clusters get-credentials CLUSTER_NAME \
   --location=REGION_OR_ZONE --project=PROJECT_ID
 kubectl config current-context
+kubectl get gatewayclass gke-l7-global-external-managed
+kubectl -n exercises delete ingress log-output-ingress --ignore-not-found --wait=true --timeout=600s
 kubectl create namespace exercises --dry-run=client -o yaml | kubectl apply -f -
 
 # Create once; do not regenerate the password for an existing database.
@@ -91,9 +105,11 @@ kubectl -n exercises apply -f log_output/manifests/deployment.yaml
 kubectl -n exercises rollout status deployment/ping-pong-dep --timeout=300s
 kubectl -n exercises rollout status deployment/log-output-dep --timeout=300s
 
-# Create Ingress only after the Pods and their readiness probes exist.
-kubectl -n exercises apply -f log_output/manifests/ingress.yaml
-kubectl -n exercises get ingress log-output-ingress --watch
+kubectl -n exercises apply -f log_output/manifests/healthcheckpolicy.yaml
+kubectl -n exercises apply -f log_output/manifests/gateway.yaml
+kubectl -n exercises apply -f log_output/manifests/route.yaml
+kubectl -n exercises wait --for=condition=Programmed gateway/log-output-gateway --timeout=600s
+kubectl -n exercises describe httproute log-output-route
 ```
 
 PostgreSQL uses its own PVC,
@@ -109,8 +125,8 @@ class, not the k3d-specific `local-path` setting. Changing initialization enviro
 existing database's username/password. No existing in-memory count is migrated.
 
 Within the same namespace, Log output uses `http://ping-pong-svc:2345/pings`.
-The existing Ingress exposes `/pingpong` but not the internal `/pings` endpoint.
-To inspect `/pings` locally without changing Ingress:
+The HTTPRoute exposes `/pingpong` but not the internal `/pings` endpoint.
+To inspect `/pings` locally without changing the route:
 
 ```sh
 kubectl -n exercises port-forward service/ping-pong-svc 3001:2345
@@ -135,45 +151,50 @@ kubectl -n exercises exec ping-pong-postgres-0 -- \
   psql -U pingpong -d pingpong -c 'SELECT * FROM ping_counter;'
 ```
 
-### Shared GKE Ingress
+### Shared GKE Gateway
 
-The two applications share `log_output/manifests/ingress.yaml`, using the
-`kubernetes.io/ingress.class: gce` annotation (not Traefik). Both Services use
-`NodePort` for the GKE external Ingress; neither needs its own `LoadBalancer`.
-Existing direct access at the old LoadBalancer Service IP stops when switching
-the Service to NodePort. The Ingress provides a different external IP, on port 80.
+`log_output/manifests/gateway.yaml` defines a Gateway using
+`gke-l7-global-external-managed` with an HTTP listener on port 80.
+`log_output/manifests/route.yaml` defines its HTTPRoute. Both resources and
+Services are in `exercises`; only routes from that namespace can attach.
+Both Services use `ClusterIP`. GKE Gateway manages the network endpoint groups
+(NEGs) that connect the load balancer to the Pods; NodePort is not required.
 
 | Browser URL | Application |
 | --- | --- |
-| `http://INGRESS_IP/pingpong` | Ping-pong (exact path) |
-| `http://INGRESS_IP/` | Log output (prefix fallback) |
+| `http://GATEWAY_IP/pingpong` | Ping-pong (exact path) |
+| `http://GATEWAY_IP/` | Log output (prefix fallback) |
 
-No URL rewrite is used. Requests to `/pings` through Ingress fall back to Log
+No URL rewrite is used. Requests to `/pings` through Gateway fall back to Log
 output, not Ping-pong; Log output accesses `/pings` through the internal Service.
-Google checks each backend's `/` directly, independently of the Ingress path
-rules. Both HTTP readiness probes use `/` on container port 3000. Log output's
+Each Service has a `healthcheckpolicy.yaml` explicitly configuring Google's
+health checks to use `/` on Pod port 3000. Gateway does not infer these settings
+from readiness probes. Both HTTP readiness probes also use `/`. Log output's
 probe calls `/pings`, which reads the count but never increments it. No liveness
 probe tied to database availability is added.
 
 Load-balancer provisioning can take several minutes after Pods are Ready.
-For an already existing Ingress, changing a readiness probe alone does not
-necessarily update its cloud health check; inspect the backend health checks
-if it remains unhealthy. Do not apply `cluster/traefik-config.yaml` to GKE.
+Check that the Gateway is `Programmed`, the HTTPRoute's parent conditions are
+`Accepted=True` and `ResolvedRefs=True`, and both HealthCheckPolicies are attached.
+These control-plane conditions do not replace testing the actual HTTP responses.
+Do not apply `cluster/traefik-config.yaml` to GKE.
 
-After the Ingress address appears:
+After the Gateway address appears:
 
 ```sh
-INGRESS_IP=$(kubectl -n exercises get ingress log-output-ingress \
-  -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-curl -f "http://${INGRESS_IP}/"
-curl -f "http://${INGRESS_IP}/pingpong"
-curl -f "http://${INGRESS_IP}/"
+GATEWAY_IP=$(kubectl -n exercises get gateway log-output-gateway \
+  -o jsonpath='{.status.addresses[0].value}')
+curl -f "http://${GATEWAY_IP}/"
+curl -f "http://${GATEWAY_IP}/pingpong"
+curl -f "http://${GATEWAY_IP}/"
 ```
 
 The final Log output response should show the increased Ping-pong total.
 Repeated root/health requests must not increase it. For diagnosis, use
-`kubectl -n exercises describe ingress log-output-ingress` and inspect Pod logs.
+`kubectl -n exercises describe gateway log-output-gateway`,
+`kubectl -n exercises describe httproute log-output-route`, and
+`kubectl -n exercises describe healthcheckpolicy`; also inspect Pod logs.
 
 These manifests now target GKE. For the earlier k3d/Traefik setup, use the older
-release manifests or separate local overrides; the GKE Ingress will not be
+release manifests or separate local overrides; the GKE Gateway will not be
 handled by k3d's default Traefik controller. Todo is not changed by this setup.
