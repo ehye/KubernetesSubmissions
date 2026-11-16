@@ -33,4 +33,4 @@
 
 ### Chapter 4
 
-- [3.1.](https://github.com/ehye/KubernetesSubmissions/tree/3.1/ping_pong) — [PostgreSQL manifests](https://github.com/ehye/KubernetesSubmissions/tree/3.1/log_output/manifests)
+- [3.1.](https://github.com/ehye/KubernetesSubmissions/tree/3.1/ping_pong)
