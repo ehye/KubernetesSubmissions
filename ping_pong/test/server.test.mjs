@@ -86,12 +86,23 @@ test('GET /pingpong increments the total exposed by /pings', { timeout: 5000 }, 
   assert.equal(await (await fetch(`${base}/pings`)).text(), '3');
 });
 
+test('root health checks return 200 without incrementing the counter', { timeout: 5000 }, async t => {
+  const base = await startApp(t);
+  await fetch(`${base}/pingpong`);
+  for (const path of ['/', '/', '/?health=1']) {
+    const response = await fetch(`${base}${path}`);
+    assert.equal(response.status, 200);
+    assert.equal(await response.text(), 'OK\n');
+  }
+  assert.equal(await (await fetch(`${base}/pings`)).text(), '1');
+});
+
 test('other paths and methods do not increment the total', { timeout: 5000 }, async t => {
   const base = await startApp(t);
-  const missing = await fetch(`${base}/`);
+  const missing = await fetch(`${base}/unknown`);
   assert.equal(missing.status, 404);
   await missing.text();
-  for (const path of ['/pingpong', '/pings']) {
+  for (const path of ['/', '/pingpong', '/pings']) {
     const response = await fetch(`${base}${path}`, { method: 'POST' });
     assert.equal(response.status, 405);
     assert.equal(response.headers.get('allow'), 'GET');
@@ -139,7 +150,7 @@ test('database failures return 503 and requests can recover', async t => {
     return '7';
   };
   const base = await startApp(t, { read, increment: read });
-  for (const path of ['/pings', '/pingpong']) {
+  for (const path of ['/', '/pings', '/pingpong']) {
     const response = await fetch(`${base}${path}`);
     assert.equal(response.status, 503);
     assert.equal(await response.text(), 'Counter database is temporarily unavailable');

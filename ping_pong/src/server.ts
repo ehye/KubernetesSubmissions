@@ -14,7 +14,7 @@ export function parsePort(value: string | undefined): number {
 export function createApp(counter: Counter) {
   return createServer(async (request, response) => {
     const path = request.url?.split('?')[0];
-    if (path !== '/pingpong' && path !== '/pings') {
+    if (path !== '/' && path !== '/pingpong' && path !== '/pings') {
       response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
       response.end('Not found');
       return;
@@ -30,12 +30,12 @@ export function createApp(counter: Counter) {
     }
 
     try {
-      const value = path === '/pings' ? await counter.read() : await counter.increment();
+      const value = path === '/pingpong' ? await counter.increment() : await counter.read();
       response.writeHead(200, {
         'Content-Type': 'text/plain; charset=utf-8',
         'Cache-Control': 'no-store',
       });
-      response.end(path === '/pings' ? value : `pong ${value}`);
+      response.end(path === '/' ? 'OK\n' : path === '/pings' ? value : `pong ${value}`);
     } catch {
       console.error('Unable to access the PostgreSQL counter');
       response.writeHead(503, {

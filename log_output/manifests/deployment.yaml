@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: writer
-          image: log-output:2.5
+          image: ghcr.io/ehye/log-output:3.2
           command: ["node", "dist/writer.js"]
           resources:
             requests:
@@ -33,7 +33,7 @@ spec:
             - name: log-data
               mountPath: /shared
         - name: reader
-          image: log-output:2.5
+          image: ghcr.io/ehye/log-output:3.2
           command: ["node", "dist/index.js"]
           resources:
             requests:
@@ -58,6 +58,12 @@ spec:
               value: http://ping-pong-svc:2345/pings
           ports:
             - containerPort: 3000
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            periodSeconds: 5
+            timeoutSeconds: 5
           volumeMounts:
             - name: log-data
               mountPath: /shared
