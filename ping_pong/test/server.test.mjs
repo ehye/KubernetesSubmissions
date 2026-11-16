@@ -77,19 +77,21 @@ test('GET /pings returns zero initially and never increments the total', { timeo
   }
 });
 
-test('GET /pingpong increments the total exposed by /pings', { timeout: 5000 }, async t => {
+test('GET / increments the total exposed by /pings', { timeout: 5000 }, async t => {
   const base = await startApp(t);
   for (let count = 0; count < 3; count++) {
-    assert.equal(await (await fetch(`${base}/pingpong`)).text(), `pong ${count}`);
+    const response = await fetch(`${base}/${count === 1 ? '?example=1' : ''}`);
+    assert.equal(response.status, 200);
+    assert.equal(await response.text(), `pong ${count}`);
     assert.equal(await (await fetch(`${base}/pings`)).text(), String(count + 1));
   }
   assert.equal(await (await fetch(`${base}/pings`)).text(), '3');
 });
 
-test('root health checks return 200 without incrementing the counter', { timeout: 5000 }, async t => {
+test('GET /healthz returns 200 without incrementing the counter', { timeout: 5000 }, async t => {
   const base = await startApp(t);
-  await fetch(`${base}/pingpong`);
-  for (const path of ['/', '/', '/?health=1']) {
+  await fetch(`${base}/`);
+  for (const path of ['/healthz', '/healthz', '/healthz?health=1']) {
     const response = await fetch(`${base}${path}`);
     assert.equal(response.status, 200);
     assert.equal(await response.text(), 'OK\n');
@@ -99,10 +101,12 @@ test('root health checks return 200 without incrementing the counter', { timeout
 
 test('other paths and methods do not increment the total', { timeout: 5000 }, async t => {
   const base = await startApp(t);
-  const missing = await fetch(`${base}/unknown`);
-  assert.equal(missing.status, 404);
-  await missing.text();
-  for (const path of ['/', '/pingpong', '/pings']) {
+  for (const path of ['/unknown', '/pingpong']) {
+    const missing = await fetch(`${base}${path}`);
+    assert.equal(missing.status, 404);
+    await missing.text();
+  }
+  for (const path of ['/', '/healthz', '/pings']) {
     const response = await fetch(`${base}${path}`, { method: 'POST' });
     assert.equal(response.status, 405);
     assert.equal(response.headers.get('allow'), 'GET');
@@ -114,7 +118,7 @@ test('other paths and methods do not increment the total', { timeout: 5000 }, as
 test('concurrent requests receive distinct counts', { timeout: 5000 }, async t => {
   const base = await startApp(t);
   const counts = await Promise.all(Array.from({ length: 10 }, async () => {
-    const response = await fetch(`${base}/pingpong`);
+    const response = await fetch(`${base}/`);
     assert.equal(response.status, 200);
     return Number((await response.text()).slice(5));
   }));
@@ -126,7 +130,7 @@ for (const signal of ['SIGTERM', 'SIGINT']) {
   test(`starts and shuts down cleanly on ${signal}`, databaseTests, async t => {
     await resetDatabase();
     const { child, base } = await startProcess(t);
-    assert.equal(await (await fetch(`${base}/pingpong`)).text(), 'pong 0');
+    assert.equal(await (await fetch(`${base}/`)).text(), 'pong 0');
     assert.equal(await (await fetch(`${base}/pings`)).text(), '1');
     await stopProcess(child, signal);
   });
@@ -137,7 +141,7 @@ test('process restart preserves the database count', databaseTests, async t => {
   for (let run = 0; run < 2; run++) {
     const { child, base } = await startProcess(t);
     assert.equal(await (await fetch(`${base}/pings`)).text(), String(run));
-    assert.equal(await (await fetch(`${base}/pingpong`)).text(), `pong ${run}`);
+    assert.equal(await (await fetch(`${base}/`)).text(), `pong ${run}`);
     await stopProcess(child);
   }
 });
@@ -150,12 +154,13 @@ test('database failures return 503 and requests can recover', async t => {
     return '7';
   };
   const base = await startApp(t, { read, increment: read });
-  for (const path of ['/', '/pings', '/pingpong']) {
+  for (const path of ['/', '/pings', '/healthz']) {
     const response = await fetch(`${base}${path}`);
     assert.equal(response.status, 503);
     assert.equal(await response.text(), 'Counter database is temporarily unavailable');
   }
   failed = false;
+  assert.equal(await (await fetch(`${base}/healthz`)).text(), 'OK\n');
   assert.equal(await (await fetch(`${base}/pings`)).text(), '7');
 });
 
