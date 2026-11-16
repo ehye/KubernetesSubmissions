@@ -94,6 +94,18 @@ only the reader, so running it alone requires a file supplied by a writer.
 
 ### GKE deployment
 
+`kustomization.yaml` groups Log output's ConfigMap, Deployment, Service,
+HealthCheckPolicy, and the shared Gateway and HTTPRoute. From the repository root:
+
+```sh
+kubectl kustomize log_output/
+kubectl --context=gke_dwk-gke-514607_us-west2-b_dwk-cluster apply -k log_output/
+kubectl -n exercises rollout status deployment/log-output-dep --timeout=300s
+```
+
+This requires the `exercises` namespace, Gateway API, and the existing Ping-pong
+Service and database. It does not deploy Ping-pong or modify PostgreSQL storage.
+
 Follow the [Ping-pong deployment guide](../ping_pong/README.md) to build and
 deploy both applications and PostgreSQL. Only PostgreSQL needs a PVC; neither
 Log output container mounts database storage. The manifests target GKE and use
