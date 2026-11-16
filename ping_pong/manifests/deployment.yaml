@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: ping-pong
-          image: ghcr.io/ehye/ping-pong:3.3
+          image: ghcr.io/ehye/ping-pong:3.4
           resources:
             requests:
               cpu: "50m"

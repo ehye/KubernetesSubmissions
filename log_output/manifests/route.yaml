@@ -10,14 +10,14 @@ spec:
   rules:
   - matches:
     - path:
-        type: Exact
+        type: PathPrefix
         value: /pingpong
     filters:
     - type: URLRewrite
       urlRewrite:
         path:
-          type: ReplaceFullPath
-          replaceFullPath: /
+          type: ReplacePrefixMatch
+          replacePrefixMatch: /
     backendRefs:
     - name: ping-pong-svc
       port: 2345

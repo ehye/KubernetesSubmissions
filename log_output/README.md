@@ -97,11 +97,11 @@ only the reader, so running it alone requires a file supplied by a writer.
 Follow the [Ping-pong deployment guide](../ping_pong/README.md) to build and
 deploy both applications and PostgreSQL. Only PostgreSQL needs a PVC; neither
 Log output container mounts database storage. The manifests target GKE and use
-`ghcr.io/ehye/log-output:3.3` for both containers. Publish it using the manual
+`ghcr.io/ehye/log-output:3.4` for both containers. Publish it using the manual
 GitHub Actions workflow before deploying. For a local build only, from `log_output/`:
 
 ```sh
-docker build -t ghcr.io/ehye/log-output:3.3 .
+docker build -t ghcr.io/ehye/log-output:3.4 .
 ```
 
 In Kubernetes, `PING_PONG_URL` points to `http://ping-pong-svc:2345/pings`.
