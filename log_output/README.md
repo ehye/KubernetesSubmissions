@@ -111,7 +111,7 @@ readiness probe on `/`. Todo still uses the existing PVC for its image
 cache: do not delete the PV/PVC or its files.
 
 Log output shares a GKE Gateway with Ping-pong: `/` goes to Log output and
-`/pingpong` goes to Ping-pong without rewriting. Follow the
+`/pingpong` is rewritten to `/` before forwarding to Ping-pong. Follow the
 [Ping-pong deployment guide](../ping_pong/README.md#deploy-to-gke-when-ready)
 for Gateway API enablement and the ordered migration steps. Remove the old
 Ingress before attaching its Services to Gateway; this migration has downtime.
@@ -120,7 +120,8 @@ The old local Traefik entrypoint and host-port mapping do not apply on GKE.
 Traffic flows through Gateway and HTTPRoute `/` to `log-output-svc:2345`, then
 to the app on port `3000`. Both backend Services use ClusterIP. The Gateway and
 route are in `manifests/gateway.yaml` and `manifests/route.yaml`. Each application's
-`manifests/healthcheckpolicy.yaml` checks `/` on Pod port 3000 explicitly because
+`manifests/healthcheckpolicy.yaml` checks Pod port 3000 explicitly (`/` for Log
+output, `/healthz` for Ping-pong) because
 GKE Gateway does not infer health checks from readiness probes.
 
 The writer also logs each successfully published line to stdout. Each writer

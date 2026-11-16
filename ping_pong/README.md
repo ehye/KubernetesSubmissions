@@ -2,11 +2,11 @@
 
 A TypeScript HTTP application with a PostgreSQL-backed counter:
 
-- `GET /pingpong` returns `pong 0`, then `pong 1`, and so on, incrementing the total.
+- `GET /` returns `pong 0`, then `pong 1`, and so on, incrementing the total.
 - `GET /pings` returns the current total (initially `0`) without incrementing it.
-- `GET /` checks database access and returns `200 OK` without incrementing the
+- `GET /healthz` checks database access and returns `200 OK` without incrementing the
   counter. Readiness probes and GKE load-balancer health checks use this path.
-- After three requests to `/pingpong`, `/pings` returns `3`.
+- After three requests to `/`, `/pings` returns `3`.
 - Restarting Ping-pong or replacing the PostgreSQL Pod preserves the counter,
   as long as the database PVC is retained. No counter file is used.
 
@@ -23,7 +23,7 @@ pnpm build
 PORT=3001 pnpm start
 ```
 
-Open `http://127.0.0.1:3001/pingpong` to increment or `/pings` to read the total.
+Open `http://127.0.0.1:3001/` to increment or `/pings` to read the total.
 `PORT` defaults to `3000`; use `3001` when running beside Log output locally.
 Before starting, supply `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, and `PGPASSWORD`
 for a running PostgreSQL database. For example:
@@ -36,7 +36,7 @@ PORT=3001 pnpm start
 ```
 
 Startup creates `ping_counter` and seeds its single row only if missing. Each
-`/pingpong` executes one atomic `UPDATE ... RETURNING`; `/pings` only reads.
+`/` executes one atomic `UPDATE ... RETURNING`; `/pings` only reads.
 Database failures return `503`, never an incorrect zero. A database unavailable
 at startup makes the process exit; Kubernetes retries it automatically.
 
@@ -55,7 +55,7 @@ for these tests.
 
 Use **Actions → Build and publish image → Run workflow** to publish both
 `ping-pong:3.3` and `log-output:3.3` to GHCR. Select the branch containing these
-changes so the Ping-pong image includes the new `/` health endpoint. Make both
+changes so the Ping-pong image serves `/` and provides `/healthz`. Make both
 packages public, or configure pull credentials for private packages.
 
 To build locally without pushing or deploying:
@@ -165,11 +165,14 @@ Both Services use `ClusterIP`. GKE Gateway manages the network endpoint groups
 | `http://GATEWAY_IP/pingpong` | Ping-pong (exact path) |
 | `http://GATEWAY_IP/` | Log output (prefix fallback) |
 
-No URL rewrite is used. Requests to `/pings` through Gateway fall back to Log
+The Ping-pong rule uses `URLRewrite` with `ReplaceFullPath` to forward the exact
+public `/pingpong` path as `/`. The application does not handle `/pingpong` itself.
+Log output's `/` rule has no rewrite. Requests to `/pings` through Gateway fall back to Log
 output, not Ping-pong; Log output accesses `/pings` through the internal Service.
 Each Service has a `healthcheckpolicy.yaml` explicitly configuring Google's
-health checks to use `/` on Pod port 3000. Gateway does not infer these settings
-from readiness probes. Both HTTP readiness probes also use `/`. Log output's
+health checks to use Pod port 3000: `/healthz` for Ping-pong and `/` for Log output.
+Gateway does not infer these settings from readiness probes. The HTTP readiness
+probes use the same respective paths. Log output's
 probe calls `/pings`, which reads the count but never increments it. No liveness
 probe tied to database availability is added.
 
@@ -190,7 +193,8 @@ curl -f "http://${GATEWAY_IP}/"
 ```
 
 The final Log output response should show the increased Ping-pong total.
-Repeated root/health requests must not increase it. For diagnosis, use
+Repeated Log output root requests and Ping-pong `/healthz` requests must not
+increase it; direct Ping-pong `/` requests intentionally increment. For diagnosis, use
 `kubectl -n exercises describe gateway log-output-gateway`,
 `kubectl -n exercises describe httproute log-output-route`, and
 `kubectl -n exercises describe healthcheckpolicy`; also inspect Pod logs.
