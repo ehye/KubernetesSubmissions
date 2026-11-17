@@ -10,7 +10,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: todo-gke-production
+  group: todo-gke-${{ github.ref_name }}
   cancel-in-progress: false
 
 env:
@@ -78,6 +78,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7.0.1
 
+      - name: Select environment namespace
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF_NAME" = main ]; then
+            namespace=project
+          else
+            namespace="$GITHUB_REF_NAME"
+            if [ "$namespace" = project ]; then
+              echo 'The project namespace is reserved for main.' >&2
+              exit 1
+            fi
+          fi
+          echo "DEPLOY_NAMESPACE=$namespace" >> "$GITHUB_ENV"
+
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v3
         with:
@@ -92,8 +107,21 @@ jobs:
           project_id: ${{ env.PROJECT_ID }}
           location: ${{ env.GKE_ZONE }}
 
-      - name: Check existing database credentials
-        run: kubectl -n project get secret todo-postgres-secret -o name
+      - name: Prepare namespace and database credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl create namespace "$DEPLOY_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+          if [ "$GITHUB_REF_NAME" = main ]; then
+            # Production credentials must already exist; never replace them.
+            kubectl -n "$DEPLOY_NAMESPACE" get secret todo-postgres-secret -o name
+          else
+            existing=$(kubectl -n "$DEPLOY_NAMESPACE" get secret todo-postgres-secret --ignore-not-found -o name)
+            if [ -z "$existing" ]; then
+              kubectl -n "$DEPLOY_NAMESPACE" create secret generic todo-postgres-secret \
+                --from-literal=POSTGRES_PASSWORD="$(openssl rand -hex 24)"
+            fi
+          fi
 
       - name: Render deployment with published images
         shell: bash
@@ -104,6 +132,7 @@ jobs:
           cat > "$RUNNER_TEMP/todo-deploy/kustomization.yaml" <<EOF
           apiVersion: kustomize.config.k8s.io/v1beta1
           kind: Kustomization
+          namespace: ${DEPLOY_NAMESPACE}
           resources:
             - ${base_path}
           images:
@@ -122,19 +151,20 @@ jobs:
         run: |
           set -euo pipefail
           kubectl apply -f "$RUNNER_TEMP/todo-rendered.yaml"
-          kubectl -n project rollout status statefulset/todo-postgres --timeout=300s
-          kubectl -n project rollout status deployment/todo-backend-dep --timeout=300s
-          kubectl -n project rollout status deployment/todo-app-dep --timeout=300s
-          kubectl -n project wait --for=condition=Programmed gateway/todo-gateway --timeout=600s
-          kubectl -n project get pods,pvc,gateway
+          kubectl -n "$DEPLOY_NAMESPACE" rollout status statefulset/todo-postgres --timeout=300s
+          kubectl -n "$DEPLOY_NAMESPACE" rollout status deployment/todo-backend-dep --timeout=300s
+          kubectl -n "$DEPLOY_NAMESPACE" rollout status deployment/todo-app-dep --timeout=300s
+          kubectl -n "$DEPLOY_NAMESPACE" wait --for=condition=Programmed gateway/todo-gateway --timeout=600s
+          kubectl -n "$DEPLOY_NAMESPACE" get pods,pvc,gateway
 
       - name: Show deployment
         shell: bash
         run: |
           set -euo pipefail
-          address=$(kubectl -n project get gateway todo-gateway -o jsonpath='{.status.addresses[0].value}')
+          address=$(kubectl -n "$DEPLOY_NAMESPACE" get gateway todo-gateway -o jsonpath='{.status.addresses[0].value}')
           {
             echo '### Todo deployment'
+            echo "Namespace: ${DEPLOY_NAMESPACE}"
             echo "URL: http://${address}/"
             echo "Frontend: ${REGISTRY}/${PROJECT_ID}/${REPOSITORY}/todo-app:${GITHUB_SHA}"
             echo "Backend and CronJob: ${REGISTRY}/${PROJECT_ID}/${REPOSITORY}/todo-backend:${GITHUB_SHA}"

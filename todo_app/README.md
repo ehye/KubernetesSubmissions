@@ -25,6 +25,20 @@ gcloud container clusters update dwk-cluster \
 Enable Gateway API, then repeat the GatewayClass check after provisioning.
 Deployment creates billable resources. Preserve existing database Secrets and PVCs.
 
+## Deploy through Actions
+
+```sh
+gh workflow run main.yaml --ref main
+gh run list --workflow main.yaml --limit 5
+```
+
+Build images in Artifact Registry and deploy to GKE. Pushes and merges to `main`
+also trigger this workflow. Only `main` runs, using namespace `project` and its
+existing database Secret.
+
+If enabled later, other branches use their own namespace, credentials, PVCs, and
+Gateway IP. DNS and automatic cleanup are not configured; `project` is reserved.
+
 ## 1. Publish images
 
 ```sh
