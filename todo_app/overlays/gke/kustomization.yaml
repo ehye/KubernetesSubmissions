@@ -1,0 +1,24 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: project
+resources:
+  - ../../manifests
+  - ../../../todo_backend/manifests
+  - namespace.yaml
+  - storage.yaml
+  - gateway.yaml
+images:
+  - name: todo-app
+    newName: ghcr.io/ehye/todo-app
+    newTag: "3.5"
+  - name: todo-backend
+    newName: ghcr.io/ehye/todo-backend
+    newTag: "3.5"
+patches:
+  - target:
+      kind: StatefulSet
+      name: todo-postgres
+    patch: |-
+      - op: remove
+        path: /spec/volumeClaimTemplates/0/spec/storageClassName
+  - path: readiness.yaml
