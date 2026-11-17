@@ -1,7 +1,7 @@
 # Log output
 
 Run commands from the repository root. Complete the
-[GKE prerequisites](../README.md#select-the-gke-cluster) and deploy
+[GKE prerequisites](../todo_app/README.md#select-the-gke-cluster) and deploy
 [Ping-pong and its database](../ping_pong/README.md) first.
 
 ## 1. Publish the image

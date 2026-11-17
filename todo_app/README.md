@@ -1,7 +1,29 @@
 # Todo app
 
 Run all commands from the repository root. Complete the
-[GKE prerequisites](../README.md#select-the-gke-cluster) first.
+[GKE prerequisites](#select-the-gke-cluster) first.
+
+## Select the GKE cluster
+
+Install and authenticate `gcloud`, `kubectl`, and `gh`, then run:
+
+```sh
+gcloud container clusters get-credentials dwk-cluster \
+  --zone=us-west2-b --project=dwk-gke-514607
+kubectl config current-context
+kubectl get gatewayclass gke-l7-global-external-managed
+```
+
+Load the cluster credentials, confirm kubectl targets GKE rather than k3d, and
+check Gateway API availability. If Gateway API has not been enabled yet:
+
+```sh
+gcloud container clusters update dwk-cluster \
+  --zone=us-west2-b --project=dwk-gke-514607 --gateway-api=standard
+```
+
+Enable Gateway API, then repeat the GatewayClass check after provisioning.
+Deployment creates billable resources. Preserve existing database Secrets and PVCs.
 
 ## 1. Publish images
 

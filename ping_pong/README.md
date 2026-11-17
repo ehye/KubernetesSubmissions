@@ -1,7 +1,7 @@
 # Ping-pong
 
 Run commands from the repository root. Complete the
-[GKE prerequisites](../README.md#select-the-gke-cluster) first.
+[GKE prerequisites](../todo_app/README.md#select-the-gke-cluster) first.
 
 ## 1. Publish the image
 

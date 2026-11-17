@@ -1,44 +1,5 @@
 # KubernetesSubmissions
 
-## Manual deployment guides
-
-Run deployment commands from the repository root. Install and authenticate
-`gcloud`, `kubectl`, and `gh` before using the guides.
-
-| Application | Guide |
-| --- | --- |
-| Todo frontend, backend, database, and Gateway | [Todo app](todo_app/README.md) |
-| Todo API, database checks, and reading job | [Todo backend](todo_backend/README.md) |
-| Ping-pong and its database | [Ping-pong](ping_pong/README.md) |
-| Log output and shared Gateway | [Log output](log_output/README.md) |
-| PVC checks and local k3d storage | [Storage](storage/README.md) |
-
-### Select the GKE cluster
-
-```sh
-gcloud container clusters get-credentials dwk-cluster \
-  --zone=us-west2-b --project=dwk-gke-514607
-kubectl config current-context
-```
-
-Load the cluster credentials and confirm kubectl targets
-`gke_dwk-gke-514607_us-west2-b_dwk-cluster`, not the local k3d cluster.
-
-```sh
-kubectl get gatewayclass gke-l7-global-external-managed
-```
-
-Check that Gateway API is available. If it has not been enabled yet:
-
-```sh
-gcloud container clusters update dwk-cluster \
-  --zone=us-west2-b --project=dwk-gke-514607 --gateway-api=standard
-```
-
-Enable Gateway API, then repeat the GatewayClass check after provisioning.
-Deployment commands create billable cloud resources. Preserve existing database
-Secrets and PVCs when redeploying.
-
 ## Exercises
 
 ### Chapter 2
