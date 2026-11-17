@@ -1,0 +1,141 @@
+name: Deploy Todo to GKE
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: todo-gke-production
+  cancel-in-progress: false
+
+env:
+  PROJECT_ID: dwk-gke-514607
+  GKE_CLUSTER: dwk-cluster
+  GKE_ZONE: us-west2-b
+  REGISTRY: southamerica-west1-docker.pkg.dev
+  REPOSITORY: dwk
+  WORKLOAD_IDENTITY_PROVIDER: projects/634882339266/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+  SERVICE_ACCOUNT: github-actions-sa@dwk-gke-514607.iam.gserviceaccount.com
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: todo-app
+            context: ./todo_app
+          - image: todo-backend
+            context: ./todo_backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.SERVICE_ACCOUNT }}
+          token_format: access_token
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4.4.1
+
+      - name: Log in to Artifact Registry
+        uses: docker/login-action@v4.8.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: oauth2accesstoken
+          password: ${{ steps.auth.outputs.access_token }}
+
+      - name: Build and publish
+        uses: docker/build-push-action@v7.4.0
+        with:
+          context: ${{ matrix.context }}
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ matrix.image }}:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.SERVICE_ACCOUNT }}
+
+      - name: Get GKE credentials
+        uses: google-github-actions/get-gke-credentials@v3
+        with:
+          cluster_name: ${{ env.GKE_CLUSTER }}
+          project_id: ${{ env.PROJECT_ID }}
+          location: ${{ env.GKE_ZONE }}
+
+      - name: Check existing database credentials
+        run: kubectl -n project get secret todo-postgres-secret -o name
+
+      - name: Render deployment with published images
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/todo-deploy"
+          base_path=$(realpath --relative-to="$RUNNER_TEMP/todo-deploy" "$GITHUB_WORKSPACE/todo_app/overlays/gke")
+          cat > "$RUNNER_TEMP/todo-deploy/kustomization.yaml" <<EOF
+          apiVersion: kustomize.config.k8s.io/v1beta1
+          kind: Kustomization
+          resources:
+            - ${base_path}
+          images:
+            - name: ghcr.io/ehye/todo-app
+              newName: ${REGISTRY}/${PROJECT_ID}/${REPOSITORY}/todo-app
+              newTag: "${GITHUB_SHA}"
+            - name: ghcr.io/ehye/todo-backend
+              newName: ${REGISTRY}/${PROJECT_ID}/${REPOSITORY}/todo-backend
+              newTag: "${GITHUB_SHA}"
+          EOF
+          kubectl kustomize "$RUNNER_TEMP/todo-deploy" > "$RUNNER_TEMP/todo-rendered.yaml"
+          kubectl apply --dry-run=server -f "$RUNNER_TEMP/todo-rendered.yaml"
+
+      - name: Deploy and wait for readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl apply -f "$RUNNER_TEMP/todo-rendered.yaml"
+          kubectl -n project rollout status statefulset/todo-postgres --timeout=300s
+          kubectl -n project rollout status deployment/todo-backend-dep --timeout=300s
+          kubectl -n project rollout status deployment/todo-app-dep --timeout=300s
+          kubectl -n project wait --for=condition=Programmed gateway/todo-gateway --timeout=600s
+          kubectl -n project get pods,pvc,gateway
+
+      - name: Show deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          address=$(kubectl -n project get gateway todo-gateway -o jsonpath='{.status.addresses[0].value}')
+          {
+            echo '### Todo deployment'
+            echo "URL: http://${address}/"
+            echo "Frontend: ${REGISTRY}/${PROJECT_ID}/${REPOSITORY}/todo-app:${GITHUB_SHA}"
+            echo "Backend and CronJob: ${REGISTRY}/${PROJECT_ID}/${REPOSITORY}/todo-backend:${GITHUB_SHA}"
+          } >> "$GITHUB_STEP_SUMMARY"

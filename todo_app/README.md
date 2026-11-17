@@ -1,169 +1,116 @@
 # Todo app
 
-A TypeScript HTTP server with a centered photo below the Todo app heading.
-The browser loads the photo from this app's `/image` endpoint, not directly
-from Picsum. The todo list and Send button use the separate
-[Todo backend](../todo_backend/README.md).
+Run all commands from the repository root. Complete the
+[GKE prerequisites](#select-the-gke-cluster) first.
 
-## GKE deployment
+## Select the GKE cluster
 
-The `overlays/gke` Kustomization deploys the frontend, backend, PostgreSQL, hourly
-reading-todo CronJob, and a separate HTTP Gateway in the `project` namespace.
-It uses public `ghcr.io/ehye/todo-app:3.5` and `ghcr.io/ehye/todo-backend:3.5`
-images published with the existing manual **Build and publish image** workflow.
-This setup does not enable automatic deployments or use Artifact Registry yet.
-
-From the repository root, after publishing both images:
+Install and authenticate `gcloud`, `kubectl`, and `gh`, then run:
 
 ```sh
 gcloud container clusters get-credentials dwk-cluster \
   --zone=us-west2-b --project=dwk-gke-514607
 kubectl config current-context
+kubectl get gatewayclass gke-l7-global-external-managed
+```
+
+Load the cluster credentials, confirm kubectl targets GKE rather than k3d, and
+check Gateway API availability. If Gateway API has not been enabled yet:
+
+```sh
+gcloud container clusters update dwk-cluster \
+  --zone=us-west2-b --project=dwk-gke-514607 --gateway-api=standard
+```
+
+Enable Gateway API, then repeat the GatewayClass check after provisioning.
+Deployment creates billable resources. Preserve existing database Secrets and PVCs.
+
+## 1. Publish images
+
+```sh
+gh workflow run publish-image.yaml --ref main -f image=todo-app -f tag=3.5
+gh workflow run publish-image.yaml --ref main -f image=todo-backend -f tag=3.5
+gh run list --workflow publish-image.yaml --limit 5
+```
+
+These commands start the manual GitHub Actions builds for both GHCR images and
+show their status. Wait for both builds to succeed. Packages must be public for
+anonymous pulls; private packages require pull credentials.
+
+## 2. Prepare the namespace and password
+
+```sh
 kubectl apply -f todo_app/overlays/gke/namespace.yaml
-# First deployment only; keep the existing Secret on subsequent deployments.
+kubectl -n project get secret todo-postgres-secret
+```
+
+Create the namespace and check whether the database password already exists.
+**Only if the Secret is missing on a first deployment**, run:
+
+```sh
 kubectl -n project create secret generic todo-postgres-secret \
   --from-literal=POSTGRES_PASSWORD="$(openssl rand -hex 24)"
+```
+
+This stores a randomly generated password. Keep the existing Secret when
+redeploying; generating a new password does not update an existing database.
+
+## 3. Preview and deploy
+
+```sh
 kubectl kustomize todo_app/overlays/gke/
+kubectl apply --dry-run=server -k todo_app/overlays/gke/
 kubectl apply -k todo_app/overlays/gke/
+```
+
+Render the manifests, validate them without changing the cluster, then deploy
+Todo, its backend, database, image-cache PVC, reading CronJob, and Gateway.
+This manual configuration uses GHCR tag `3.5`, not Artifact Registry images.
+
+```sh
 kubectl -n project rollout status statefulset/todo-postgres --timeout=300s
 kubectl -n project rollout status deployment/todo-backend-dep --timeout=300s
 kubectl -n project rollout status deployment/todo-app-dep --timeout=300s
 kubectl -n project wait --for=condition=Programmed gateway/todo-gateway --timeout=600s
-kubectl -n project get gateway todo-gateway
+kubectl -n project get pods,pvc,gateway
 ```
 
-Gateway API must already be enabled. Allow additional time for load-balancer
-health checks after the Gateway is Programmed. The frontend proxies `/todos` to
-the backend internally; only the frontend Service is exposed through Gateway.
-The GKE overlay excludes the local Traefik Ingress.
+Wait for the database, both applications, and Gateway; then check Pod readiness,
+bound storage, and the public address. Updates briefly interrupt service because
+the Deployments use `Recreate`. Do not delete PVCs to resolve rollout problems.
 
-Both PVCs use the cluster's default StorageClass (`standard-rwo` on this cluster).
-The overlay removes the PostgreSQL claim's k3d-specific `local-path` setting;
-the image-cache PVC is dynamically provisioned instead of bound to a local PV.
-Both Deployments retain `Recreate` with one replica, avoiding overlapping Pods
-on the image-cache ReadWriteOnce volume during updates (brief downtime).
-The frontend's `fsGroup: 1000` lets the non-root image write its mounted cache.
-Never delete the PVCs or regenerate the database password for an existing database.
-Existing k3d data is not copied to the new GKE volumes.
-
-Deployment verification: the public UI and image endpoint returned 200, creating
-a Todo returned 201, and the Todo remained readable after restarting the backend.
-
-## Run
+## 4. Verify public access
 
 ```sh
-pnpm install --frozen-lockfile
-pnpm build
-HOST=127.0.0.1 PORT=8080 \
-IMAGE_CACHE_FILE=./data/todo-image/image.jpg \
-PICSUM_URL=https://picsum.photos/1200 \
-TODO_BACKEND_URL=http://127.0.0.1:3001 \
-IMAGE_CACHE_DURATION_MS=600000 IMAGE_TIMEOUT_MS=15000 \
-BACKEND_TIMEOUT_MS=3000 SHUTDOWN_TIMEOUT_MS=10000 \
-IMAGE_RETRY_AFTER_SECONDS=5 \
-ENABLE_SHUTDOWN_TEST=false pnpm start
+TODO_URL="http://$(kubectl -n project get gateway todo-gateway \
+  -o jsonpath='{.status.addresses[0].value}')"
+curl -f "$TODO_URL/"
+curl -f "$TODO_URL/image" -o /dev/null
+curl -f "$TODO_URL/todos"
 ```
 
-Open `http://127.0.0.1:8080/`. All runtime settings above are required;
-missing or invalid settings cause a clear startup error rather than a fallback.
-Use `pnpm test` to run the tests.
-
-First start `todo_backend/` on port `3001`. The frontend loads todos from
-`GET /todos` and sends `POST /todos` with JSON when the form is submitted.
-Its Node server forwards those requests to `TODO_BACKEND_URL`.
-In Kubernetes `manifests/configmap.yaml` sets it to
-`http://todo-backend-svc:2345`, which forwards to backend port `3000`.
-
-The browser always uses relative `/todos` URLs; it does not contact a Kubernetes
-Service name directly. Todo text is limited to 140 characters in both apps and
-rendered as text, not HTML. The page shows loading, empty-list, and backend errors.
-The backend stores todos in PostgreSQL and preserves them on restart. The
-frontend's persistent image cache is separate and unchanged.
-
-## Ten-minute image cache
-
-- On the first image request, download a random JPEG from `https://picsum.photos/1200`.
-- Store the image at `./data/todo-image/image.jpg` locally, or
-  `/shared/todo-image/image.jpg` in Kubernetes.
-- Reuse it for ten minutes, including after process/container restarts. The file's
-  modification time records when it was downloaded; reads do not reset its age.
-- On the first image request after expiry, download and serve a fresh random
-  image. This is request-driven, not an hourly background job. Refresh the page
-  to see updates; the page does not automatically reload.
-- Concurrent requests share one download. A temporary file and atomic rename
-  prevent a crash from replacing the cached image with an incomplete download.
-- If refresh fails, serve the previous image. If there is no cached image,
-  `/image` returns `503` and can be retried.
-
-`IMAGE_CACHE_FILE` supplies the file path and `PICSUM_URL` supplies the source URL.
-`IMAGE_CACHE_DURATION_MS`, `IMAGE_TIMEOUT_MS`, and `BACKEND_TIMEOUT_MS` control
-cache lifetime and request timeouts. `HOST`, `PORT`, `SHUTDOWN_TIMEOUT_MS`, and
-`ENABLE_SHUTDOWN_TEST` control listening and shutdown behavior.
-`IMAGE_RETRY_AFTER_SECONDS` supplies the retry hint when no cached image is available.
-
-The Deployment imports these settings from `todo-app-config` with `envFrom`.
-After editing the ConfigMap, apply it and restart the Deployment so new Pods
-receive the changed environment. Relative browser routes such as `/todos` and
-the 140-character validation rule remain application logic, not deployment settings.
-
-## k3d deployment
-
-Run from the repository root. Replace `<cluster-name>` and ensure kubectl targets
-that cluster. First prepare the existing PV/PVC and its directory using the
-[storage guide](../storage/README.md).
-
-First create the PostgreSQL password Secret and start the database using the
-[backend deployment instructions](../todo_backend/README.md#kubernetes).
+Read the Gateway address, then check the page, image download, and Todo API.
+Load-balancer health checks may need several minutes after provisioning.
 
 ```sh
-docker build -t todo-backend:2.10 ./todo_backend
-docker build -t todo-app:2.6 ./todo_app
-k3d image import todo-backend:2.10 todo-app:2.6 -c <cluster-name>
-kubectl -n project apply -f todo_backend/manifests/
-kubectl -n project rollout restart deployment/todo-backend-dep
-kubectl -n project rollout status deployment/todo-backend-dep
-kubectl -n project apply -f todo_app/manifests/
-kubectl -n project rollout restart deployment/todo-app-dep
-kubectl -n project rollout status deployment/todo-app-dep
-kubectl -n project logs -f deployment/todo-app-dep
+curl -f "$TODO_URL/todos" \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"Verify Todo deployment"}'
 ```
 
-With the existing Ingress and k3d port mapping, open `http://127.0.0.1:8081/`.
-Todo mounts `shared-data-pvc` in the `project` namespace,
-but only writes inside `todo-image/`. It uses one replica with `Recreate` to avoid
-overlapping image downloads during deployment updates. PostgreSQL uses a separate
-PVC; it never mounts or modifies this image cache.
+Create a real Todo to verify submissions. Open `$TODO_URL` in a browser to use
+the application.
 
-## Test a container crash
-
-The test-only endpoint is disabled by default. **While enabled, anyone who can
-reach the app can stop it**, so use it only for this exercise and disable it after testing.
+## Troubleshooting
 
 ```sh
-kubectl -n project set env deployment/todo-app-dep ENABLE_SHUTDOWN_TEST=true
-kubectl -n project rollout status deployment/todo-app-dep
-
-# Populate the cache and record its checksum.
-curl -f http://127.0.0.1:8081/image -o /dev/null
-kubectl -n project exec deployment/todo-app-dep -- sha256sum /shared/todo-image/image.jpg
-
-# Responds with 202, then immediately exits the process with code 1.
-curl -X POST http://127.0.0.1:8081/_test/shutdown
-kubectl -n project get pods -l app=todo-app --watch
+kubectl -n project describe pod -l app=todo-app
+kubectl -n project logs deployment/todo-app-dep --tail=50
+kubectl -n project describe httproute todo-route
+kubectl -n project describe healthcheckpolicy todo-app-healthcheck
 ```
 
-Kubernetes restarts the container. Once it is running, stop watching with Ctrl+C,
-refresh the page, and compare the checksum again. Within ten minutes of download,
-it should be unchanged and no new image is downloaded. Repeated crashes may cause
-Kubernetes to delay restarts.
-
-```sh
-kubectl -n project exec deployment/todo-app-dep -- sha256sum /shared/todo-image/image.jpg
-kubectl -n project set env deployment/todo-app-dep ENABLE_SHUTDOWN_TEST=false
-kubectl -n project rollout status deployment/todo-app-dep
-```
-
-For local testing, use the full environment from the Run example with
-`ENABLE_SHUTDOWN_TEST=true`,
-then POST to `http://127.0.0.1:8080/_test/shutdown` and start the app again using
-the same cache path. A local process is not automatically restarted by Kubernetes.
+Inspect scheduling/image errors, frontend logs, route acceptance, and load-balancer
+health-check configuration. See the [backend guide](../todo_backend/README.md)
+for database and CronJob checks and the [storage guide](../storage/README.md)
+for PVC checks.
