@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: todo-app-dep
+  namespace: project
+spec:
+  template:
+    spec:
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: todo-app
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            periodSeconds: 5
+            timeoutSeconds: 5
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: todo-backend-dep
+  namespace: project
+spec:
+  template:
+    spec:
+      containers:
+        - name: todo-backend
+          readinessProbe:
+            httpGet:
+              path: /todos
+              port: 3000
+            periodSeconds: 5
+            timeoutSeconds: 5

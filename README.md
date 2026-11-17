@@ -38,3 +38,4 @@
 - [3.3.](https://github.com/ehye/KubernetesSubmissions/tree/3.3/log_output)
 - [3.4.](https://github.com/ehye/KubernetesSubmissions/tree/3.4/log_output)
 - [3.5.](https://github.com/ehye/KubernetesSubmissions/tree/3.5/log_output)
+  - [Todo GKE deployment](https://github.com/ehye/KubernetesSubmissions/tree/3.5/todo_app/overlays/gke)

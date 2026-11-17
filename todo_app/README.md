@@ -5,6 +5,50 @@ The browser loads the photo from this app's `/image` endpoint, not directly
 from Picsum. The todo list and Send button use the separate
 [Todo backend](../todo_backend/README.md).
 
+## GKE deployment
+
+The `overlays/gke` Kustomization deploys the frontend, backend, PostgreSQL, hourly
+reading-todo CronJob, and a separate HTTP Gateway in the `project` namespace.
+It uses public `ghcr.io/ehye/todo-app:3.5` and `ghcr.io/ehye/todo-backend:3.5`
+images published with the existing manual **Build and publish image** workflow.
+This setup does not enable automatic deployments or use Artifact Registry yet.
+
+From the repository root, after publishing both images:
+
+```sh
+gcloud container clusters get-credentials dwk-cluster \
+  --zone=us-west2-b --project=dwk-gke-514607
+kubectl config current-context
+kubectl apply -f todo_app/overlays/gke/namespace.yaml
+# First deployment only; keep the existing Secret on subsequent deployments.
+kubectl -n project create secret generic todo-postgres-secret \
+  --from-literal=POSTGRES_PASSWORD="$(openssl rand -hex 24)"
+kubectl kustomize todo_app/overlays/gke/
+kubectl apply -k todo_app/overlays/gke/
+kubectl -n project rollout status statefulset/todo-postgres --timeout=300s
+kubectl -n project rollout status deployment/todo-backend-dep --timeout=300s
+kubectl -n project rollout status deployment/todo-app-dep --timeout=300s
+kubectl -n project wait --for=condition=Programmed gateway/todo-gateway --timeout=600s
+kubectl -n project get gateway todo-gateway
+```
+
+Gateway API must already be enabled. Allow additional time for load-balancer
+health checks after the Gateway is Programmed. The frontend proxies `/todos` to
+the backend internally; only the frontend Service is exposed through Gateway.
+The GKE overlay excludes the local Traefik Ingress.
+
+Both PVCs use the cluster's default StorageClass (`standard-rwo` on this cluster).
+The overlay removes the PostgreSQL claim's k3d-specific `local-path` setting;
+the image-cache PVC is dynamically provisioned instead of bound to a local PV.
+Both Deployments retain `Recreate` with one replica, avoiding overlapping Pods
+on the image-cache ReadWriteOnce volume during updates (brief downtime).
+The frontend's `fsGroup: 1000` lets the non-root image write its mounted cache.
+Never delete the PVCs or regenerate the database password for an existing database.
+Existing k3d data is not copied to the new GKE volumes.
+
+Deployment verification: the public UI and image endpoint returned 200, creating
+a Todo returned 201, and the Todo remained readable after restarting the backend.
+
 ## Run
 
 ```sh
