@@ -40,3 +40,4 @@
 - [3.5.](https://github.com/ehye/KubernetesSubmissions/tree/3.5/todo_app)
 - [3.6.](https://github.com/ehye/KubernetesSubmissions/tree/3.6/todo_app)
 - [3.7.](https://github.com/ehye/KubernetesSubmissions/tree/3.7/todo_app)
+- [3.8.](https://github.com/ehye/KubernetesSubmissions/tree/3.8/todo_app)

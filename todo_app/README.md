@@ -37,7 +37,12 @@ also trigger this workflow. Only `main` runs, using namespace `project` and its
 existing database Secret.
 
 If enabled later, other branches use their own namespace, credentials, PVCs, and
-Gateway IP. DNS and automatic cleanup are not configured; `project` is reserved.
+Gateway IP. DNS is not configured; `project` is reserved.
+
+Deleting a branch triggers `delete-environment.yaml` once it is on `main`.
+Cleanup removes only a matching, workflow-marked namespace, including its PVCs
+and saved data. Production/system namespaces and recreated branches are skipped.
+Artifact Registry images remain. Existing unmarked namespaces are not deleted.
 
 ## 1. Publish images
 

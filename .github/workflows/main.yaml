@@ -111,11 +111,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [ "$GITHUB_REF_NAME" != main ]; then
+            ownership=$(kubectl get namespace "$DEPLOY_NAMESPACE" --ignore-not-found \
+              -o 'jsonpath={.metadata.labels.todo-environment}{"|"}{.metadata.annotations.todo-repository}{"|"}{.metadata.annotations.todo-branch}')
+            if [ -n "$ownership" ] && [ "$ownership" != "branch|${GITHUB_REPOSITORY}|${GITHUB_REF_NAME}" ]; then
+              echo 'Refusing to adopt an unrelated namespace.' >&2
+              exit 1
+            fi
+          fi
           kubectl create namespace "$DEPLOY_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
           if [ "$GITHUB_REF_NAME" = main ]; then
             # Production credentials must already exist; never replace them.
             kubectl -n "$DEPLOY_NAMESPACE" get secret todo-postgres-secret -o name
           else
+            kubectl label namespace "$DEPLOY_NAMESPACE" todo-environment=branch --overwrite
+            kubectl annotate namespace "$DEPLOY_NAMESPACE" \
+              "todo-repository=$GITHUB_REPOSITORY" "todo-branch=$GITHUB_REF_NAME" --overwrite
             existing=$(kubectl -n "$DEPLOY_NAMESPACE" get secret todo-postgres-secret --ignore-not-found -o name)
             if [ -z "$existing" ]; then
               kubectl -n "$DEPLOY_NAMESPACE" create secret generic todo-postgres-secret \
