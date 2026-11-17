@@ -69,3 +69,60 @@ kubectl -n project describe pod -l app=todo-backend
 
 Check readiness and storage, inspect backend/database errors, and examine Pod
 events. Submitted Todo text appears in backend logs; do not submit sensitive data.
+
+## Database hosting comparison
+
+Compare Cloud SQL for PostgreSQL with a PostgreSQL container + PVC on GKE.
+
+| Area | Cloud SQL | PostgreSQL + PVC on GKE |
+| --- | --- | --- |
+| Initial work | Instance, users, networking/IAM, backups | StatefulSet, Service, Secret, PVC, probes, backups |
+| Setup fee | No | No |
+| Ongoing cost | Compute, storage, backups, networking; extra for HA | Compute, disks, backups, administration |
+| Maintenance | Google | Self manage everything |
+| Control | Restricted versions, extensions, privileges | Full configuration control |
+
+### Backups
+
+| Method | Cloud SQL | PostgreSQL + PVC on GKE |
+| --- | --- | --- |
+| Scheduled backups | Managed schedule/retention | Jobs, external storage, retention, alerts |
+| Point-in-time recovery | Managed when enabled | Base backups + WAL archiving; more effort |
+| Logical backups | Exports or dump tools | `pg_dump` / `pg_restore` |
+| Restore | Managed tooling; easier | Manual environment/data restore |
+
+### Cost example
+
+Illustrative `us-central1` list prices, USD/month, 730 hours; excludes backups
+and networking. Prices checked November 2026:
+
+- **Cloud SQL:** approximately **$9.37** for shared-core development sizing with
+  10 GiB SSD; no SLA.
+- **Cloud SQL:** approximately **$51** for 1 dedicated vCPU, 3.75 GiB RAM, and
+  10 GiB SSD.
+- **GKE:** approximately **$1 for a 10 GiB balanced disk**, **plus compute and
+  administration**.
+
+These are not equivalent configurations or quotes for this project's cluster.
+See [Cloud SQL pricing](https://cloud.google.com/sql/pricing) and
+[disk pricing](https://cloud.google.com/compute/disks-image-pricing).
+
+### Choose Cloud SQL when…
+
+- Production data and recovery reliability matter.
+- Wants less database maintenance.
+- Managed backups and high Availability.
+
+### Choose PostgreSQL + PVC on GKE when…
+
+- Existing GKE capacity keeps costs low.
+- Need more control and can maintain backups, upgrades, and recovery.
+
+### Summary
+
+**Cloud SQL trades higher infrastructure cost for less operational work.
+PostgreSQL on GKE offers control and potentially lower costs, but more
+responsible for database reliability.**
+
+For this project: **PostgreSQL + PVC on GKE for learning/branch environments;
+Cloud SQL for production data.**
