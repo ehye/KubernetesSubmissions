@@ -1,0 +1,122 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: todo-backup-config
+  namespace: project
+data:
+  GCS_BUCKET: gs://dwk-project-bakcup-bucket
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: todo-backup
+  namespace: project
+spec:
+  schedule: "0 2 * * *"
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 900
+      template:
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          initContainers:
+            - name: dump
+              image: postgres:18
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  umask 077
+                  file="/backup/backup-$(date -u +%Y-%m-%d).sql"
+                  pg_dump --format=plain --no-owner --no-privileges --file="$file"
+                  test -s "$file"
+                  echo "Created $(basename "$file")"
+              env:
+                - name: PGHOST
+                  value: todo-postgres-svc
+                - name: PGPORT
+                  value: "5432"
+                - name: PGCONNECT_TIMEOUT
+                  value: "10"
+                - name: PGDATABASE
+                  valueFrom:
+                    configMapKeyRef:
+                      name: todo-postgres-config
+                      key: POSTGRES_DB
+                - name: PGUSER
+                  valueFrom:
+                    configMapKeyRef:
+                      name: todo-postgres-config
+                      key: POSTGRES_USER
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: todo-postgres-secret
+                      key: POSTGRES_PASSWORD
+              resources:
+                requests:
+                  cpu: "50m"
+                  memory: "64Mi"
+                limits:
+                  cpu: "500m"
+                  memory: "256Mi"
+              volumeMounts:
+                - name: backup
+                  mountPath: /backup
+          containers:
+            - name: upload
+              image: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  set -- /backup/backup-????-??-??.sql
+                  test "$#" -eq 1
+                  test -s "$1"
+                  gcloud auth activate-service-account --key-file=/var/secrets/google/key.json --quiet
+                  destination="${GCS_BUCKET}/${POD_NAMESPACE}/$(basename "$1")"
+                  gcloud storage cp "$1" "$destination" --if-generation-match=0
+                  echo "Uploaded $destination"
+              env:
+                - name: GCS_BUCKET
+                  valueFrom:
+                    configMapKeyRef:
+                      name: todo-backup-config
+                      key: GCS_BUCKET
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+                - name: CLOUDSDK_CONFIG
+                  value: /tmp/gcloud
+              resources:
+                requests:
+                  cpu: "50m"
+                  memory: "128Mi"
+                limits:
+                  cpu: "500m"
+                  memory: "512Mi"
+              volumeMounts:
+                - name: backup
+                  mountPath: /backup
+                  readOnly: true
+                - name: google-credentials
+                  mountPath: /var/secrets/google
+                  readOnly: true
+          volumes:
+            - name: backup
+              emptyDir:
+                sizeLimit: 1Gi
+            - name: google-credentials
+              secret:
+                secretName: todo-backup-gcs-secret
+                defaultMode: 0400
