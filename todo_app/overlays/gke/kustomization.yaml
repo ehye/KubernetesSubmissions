@@ -8,6 +8,8 @@ resources:
   - storage.yaml
   - gateway.yaml
   - backup-cronjob.yaml
+  - backend-hpa.yaml
+  - backend-pdb.yaml
 images:
   - name: todo-app
     newName: ghcr.io/ehye/todo-app
@@ -16,6 +18,12 @@ images:
     newName: ghcr.io/ehye/todo-backend
     newTag: "3.5"
 patches:
+  - target:
+      kind: Deployment
+      name: todo-backend-dep
+    patch: |-
+      - op: remove
+        path: /spec/replicas
   - target:
       kind: StatefulSet
       name: todo-postgres

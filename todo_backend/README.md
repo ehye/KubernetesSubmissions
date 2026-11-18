@@ -15,6 +15,58 @@ kubectl -n project rollout status deployment/todo-backend-dep --timeout=300s
 Apply the GKE configuration and wait for the database and backend. This also
 applies the frontend and Gateway resources; it does not rotate the password.
 
+## Demo backend autoscaling
+
+After deploying the GKE overlay, check that CPU metrics are available and watch
+the autoscaler:
+
+```sh
+kubectl -n project top pods -l app=todo-backend
+kubectl -n project get hpa todo-backend-hpa --watch
+```
+
+The backend scales from 1 to 3 Pods at a target of 50% of the `50m` CPU request
+(about `25m` per Pod). In another terminal, send concurrent read-only requests
+through the backend Service so Kubernetes can distribute them across replicas:
+
+```sh
+kubectl -n project run todo-hpa-demo --rm -i --restart=Never \
+  --image=busybox:1.37 -- sh -c '
+    end=$(( $(date +%s) + 90 ))
+    pids=""
+    for worker in 1 2 3 4; do
+      (
+        while [ "$(date +%s)" -lt "$end" ]; do
+          wget -q -T 5 -O /dev/null http://todo-backend-svc:2345/todos || exit 1
+        done
+      ) &
+      pids="$pids $!"
+    done
+    result=0
+    for pid in $pids; do wait "$pid" || result=1; done
+    exit "$result"
+  '
+```
+
+Repeat if the CPU load did not last long enough to register. Once traffic stops,
+scale-down can take several minutes. Use
+`kubectl -n project describe hpa todo-backend-hpa` to inspect scaling decisions or
+missing metrics.
+
+## Demo the disruption budget
+
+After deploying the GKE overlay, run this in another terminal during the
+autoscaling demo:
+
+```sh
+kubectl -n project get pdb todo-backend-pdb --watch
+```
+
+Watch `ALLOWED DISRUPTIONS`: with one Ready backend Pod, it is normally `0`;
+with two Ready Pods, it is normally `1`. The budget can block a node drain
+when only one backend Pod is Ready. It does not prevent crashes or
+Deployment-driven Pod replacement.
+
 ## Test the backend directly
 
 ```sh
