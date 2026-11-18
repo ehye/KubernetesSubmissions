@@ -70,6 +70,56 @@ kubectl -n project describe pod -l app=todo-backend
 Check readiness and storage, inspect backend/database errors, and examine Pod
 events. Submitted Todo text appears in backend logs; do not submit sensitive data.
 
+## Daily database backup
+
+`todo-backup` runs daily at **02:00 UTC**, saving plain SQL as
+`gs://dwk-project-bakcup-bucket/<namespace>/backup-yyyy-MM-dd.sql`.
+Existing same-day backups are not overwritten; a duplicate upload fails.
+
+### Prepare cloud credentials
+
+```sh
+kubectl -n project create secret generic todo-backup-gcs-secret \
+  --from-file=key.json=key.json
+```
+
+First deployment only: store the downloaded service-account JSON key in a
+Kubernetes Secret. Keep `key.json` out of Git. The configured account is
+`dwk-storage-sa@dwk-gke-514607.iam.gserviceaccount.com`.
+Keep an existing Secret unless intentionally rotating credentials.
+
+### Deploy and test
+
+```sh
+kubectl apply -f todo_app/overlays/gke/backup-cronjob.yaml
+kubectl -n project get cronjob todo-backup
+JOB_NAME="todo-backup-test-$(date +%s)"
+kubectl -n project create job --from=cronjob/todo-backup "$JOB_NAME"
+kubectl -n project wait --for=condition=complete "job/$JOB_NAME" --timeout=900s
+kubectl -n project logs "job/$JOB_NAME" -c dump
+kubectl -n project logs "job/$JOB_NAME" -c upload
+```
+
+Apply the backup configuration without changing application images, inspect its
+schedule, then run and check a backup immediately. Run the test only if today's
+backup does not already exist. Failed dumps are not uploaded.
+The CronJob is also included in `kubectl apply -k todo_app/overlays/gke/`.
+
+```sh
+gcloud storage ls gs://dwk-project-bakcup-bucket/project/
+gcloud storage cp \
+  gs://dwk-project-bakcup-bucket/project/backup-YYYY-MM-DD.sql \
+  ./backup-YYYY-MM-DD.sql
+```
+
+List backups and download one, replacing `YYYY-MM-DD` with its UTC date.
+Restore with `psql -v ON_ERROR_STOP=1 -d <empty-test-database> -f <backup-file>`;
+use a disposable database, not the running Todo database.
+
+Credentials are required in each namespace where backups run. No retention
+policy is added; objects remain until removed or a bucket lifecycle rule expires
+them. Namespace deletion does not delete the Cloud Storage backups.
+
 ## Database hosting comparison
 
 Compare Cloud SQL for PostgreSQL with a PostgreSQL container + PVC on GKE.
