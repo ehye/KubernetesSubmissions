@@ -7,7 +7,6 @@ try {
   const port = parsePort(process.env.PORT);
   const config = loadConfig(process.env);
   database = createDatabase(process.env);
-  await database.initialize();
   const store = database;
   const server = createApp(store);
 

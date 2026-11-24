@@ -6,6 +6,7 @@ export interface Todo {
 }
 
 export interface TodoStore {
+  checkReady(): Promise<void>;
   list(): Promise<Todo[]>;
   create(todo: Todo): Promise<Todo>;
 }
@@ -32,20 +33,31 @@ export function createDatabase(env: NodeJS.ProcessEnv) {
   });
   pool.on('error', () => console.error('PostgreSQL connection lost'));
 
-  return {
-    async initialize() {
-      // The sequence gives a stable insertion order without exposing it in the API.
-      await pool.query(`CREATE TABLE IF NOT EXISTS todos (
+  // Share schema setup across requests, but allow a retry after a database outage.
+  let schemaReady: Promise<void> | undefined;
+  function ensureSchema() {
+    return schemaReady ??= pool.query(`CREATE TABLE IF NOT EXISTS todos (
         position BIGINT GENERATED ALWAYS AS IDENTITY UNIQUE,
         id UUID PRIMARY KEY,
         text TEXT NOT NULL CHECK (length(btrim(text)) > 0)
-      )`);
+      )`).then(() => {}).catch(error => {
+        schemaReady = undefined;
+        throw error;
+      });
+  }
+
+  return {
+    async checkReady() {
+      await ensureSchema();
+      await pool.query('SELECT 1');
     },
     async list(): Promise<Todo[]> {
+      await ensureSchema();
       const result = await pool.query<Todo>('SELECT id, text FROM todos ORDER BY position');
       return result.rows;
     },
     async create(todo: Todo): Promise<Todo> {
+      await ensureSchema();
       const result = await pool.query<Todo>(
         'INSERT INTO todos (id, text) VALUES ($1, $2) RETURNING id, text',
         [todo.id, todo.text],

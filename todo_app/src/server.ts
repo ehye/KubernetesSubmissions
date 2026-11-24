@@ -41,6 +41,25 @@ export function createApp({
   return createServer(async (request, response) => {
     const path = request.url?.split('?')[0];
 
+    if (request.method === 'GET' && (path === '/livez' || path === '/readyz')) {
+      let healthy = true;
+      if (path === '/readyz') {
+        try {
+          const upstream = await fetch(new URL('/readyz', backendUrl), {
+            signal: AbortSignal.timeout(backendTimeoutMs),
+            redirect: 'error',
+          });
+          healthy = upstream.ok;
+          await upstream.body?.cancel();
+        } catch {
+          healthy = false;
+        }
+      }
+      response.writeHead(healthy ? 200 : 503, { 'Cache-Control': 'no-store' });
+      response.end(healthy ? 'OK\n' : 'Backend unavailable\n');
+      return;
+    }
+
     if (path === '/todos') {
       await proxyTodos(request, response, backendUrl, backendTimeoutMs);
       return;
