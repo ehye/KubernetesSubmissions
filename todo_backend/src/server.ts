@@ -34,7 +34,21 @@ async function readBody(request: IncomingMessage): Promise<string | null> {
 
 export function createApp(todos: TodoStore) {
   return createServer(async (request, response) => {
-    if (request.url?.split('?')[0] !== '/todos') {
+    const path = request.url?.split('?')[0];
+    if (request.method === 'GET' && path === '/livez') {
+      sendJson(response, 200, { status: 'alive' });
+      return;
+    }
+    if (request.method === 'GET' && path === '/readyz') {
+      try {
+        await todos.checkReady();
+        sendJson(response, 200, { status: 'ready' });
+      } catch {
+        sendJson(response, 503, { status: 'unavailable' });
+      }
+      return;
+    }
+    if (path !== '/todos') {
       sendJson(response, 404, { error: 'Not found' });
       return;
     }

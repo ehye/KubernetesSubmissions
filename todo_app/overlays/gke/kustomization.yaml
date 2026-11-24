@@ -30,4 +30,4 @@ patches:
     patch: |-
       - op: remove
         path: /spec/volumeClaimTemplates/0/spec/storageClassName
-  - path: readiness.yaml
+  - path: security-context.yaml

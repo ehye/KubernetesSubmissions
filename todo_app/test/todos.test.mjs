@@ -148,7 +148,7 @@ function browser(fetch) {
     Object.defineProperty(node, 'innerHTML', { set() { throw new Error('Unsafe HTML rendering'); } });
     return node;
   }
-  const nodes = Object.fromEntries(['todo-form', 'todo-input', 'todo-send', 'todo-list', 'todo-status'].map(id => [id, element()]));
+  const nodes = Object.fromEntries(['todo-form', 'todo-input', 'todo-send', 'todo-list', 'todo-status', 'break-app', 'break-status'].map(id => [id, element()]));
   runInNewContext(todoClientScript, {
     document: { getElementById: id => nodes[id], createElement: () => element() }, fetch,
   });
@@ -157,6 +157,23 @@ function browser(fetch) {
 
 const settle = () => new Promise(resolve => setImmediate(resolve));
 const jsonResponse = (body, ok = true) => ({ ok, json: async () => body });
+
+test('clicking Break app fails frontend probes until a fresh instance starts', async t => {
+  const backend = await backendStub(t);
+  const start = () => listen(t, createApp({ backendUrl: backend.url }));
+  const base = await start();
+  const status = async (url, path) => (await fetch(url + path)).status;
+  assert.equal(await status(base, '/break'), 405);
+  assert.equal(await status(base, '/readyz'), 200);
+  const nodes = browser((url, options) => fetch(base + url, options));
+  await nodes['break-app'].handlers.click();
+  assert.match(nodes['break-status'].textContent, /marked unhealthy/);
+  assert.equal(await status(base, '/livez'), 500);
+  assert.equal(await status(base, '/readyz'), 503);
+  const fresh = await start();
+  assert.equal(await status(fresh, '/livez'), 200);
+  assert.equal(await status(fresh, '/readyz'), 200);
+});
 
 test('browser fetches the list and renders todo text without interpreting HTML', async () => {
   const calls = [];

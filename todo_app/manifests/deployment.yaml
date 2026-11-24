@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: todo-app
-          image: todo-app:2.6
+          image: todo-app:4.2
           resources:
             requests:
               cpu: "50m"
@@ -30,6 +30,15 @@ spec:
                 name: todo-app-config
           ports:
             - containerPort: 3000
+          readinessProbe:
+            httpGet: { path: /readyz, port: 3000 }
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet: { path: /livez, port: 3000 }
+            initialDelaySeconds: 10
+            periodSeconds: 5
           volumeMounts:
             - name: shared-data
               mountPath: /shared

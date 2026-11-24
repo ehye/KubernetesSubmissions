@@ -5,6 +5,20 @@ const input = document.getElementById('todo-input');
 const button = document.getElementById('todo-send');
 const list = document.getElementById('todo-list');
 const status = document.getElementById('todo-status');
+const breakButton = document.getElementById('break-app');
+const breakStatus = document.getElementById('break-status');
+
+breakButton.addEventListener('click', async () => {
+  breakButton.disabled = true;
+  try {
+    const response = await fetch('/break', { method: 'POST' });
+    if (!response.ok) throw new Error();
+    breakStatus.textContent = 'Frontend marked unhealthy. Refresh after Kubernetes restarts it.';
+  } catch {
+    breakStatus.textContent = 'Could not break the app. Try again.';
+    breakButton.disabled = false;
+  }
+});
 
 function renderTodos(todos) {
   list.replaceChildren();

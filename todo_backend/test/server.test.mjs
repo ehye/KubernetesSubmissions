@@ -11,7 +11,7 @@ const databaseTests = { skip: process.env.TEST_DATABASE !== '1', timeout: 15_000
 
 async function resetDatabase() {
   const database = createDatabase(process.env);
-  try { await database.initialize(); } finally { await database.close(); }
+  try { await database.checkReady(); } finally { await database.close(); }
   const pool = new pg.Pool();
   try { await pool.query('TRUNCATE todos RESTART IDENTITY'); } finally { await pool.end(); }
 }
@@ -239,7 +239,7 @@ test('PostgreSQL initialization preserves ordered todos and SQL-like text is saf
   }
   const database = createDatabase(process.env);
   try {
-    await database.initialize();
+    await database.checkReady();
     assert.deepEqual(await database.list(), created);
   } finally { await database.close(); }
 });

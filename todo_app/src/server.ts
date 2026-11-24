@@ -37,9 +37,47 @@ export function createApp({
   onShutdown = () => process.exit(1),
 }: AppOptions) {
   const getImage = createImageCache({ filePath: imagePath, imageUrl, cacheDurationMs, timeoutMs: imageTimeoutMs });
+  let isHealthy = true;
 
   return createServer(async (request, response) => {
     const path = request.url?.split('?')[0];
+
+    if (path === '/break') {
+      if (request.method !== 'POST') {
+        response.writeHead(405, { Allow: 'POST' });
+        response.end('Use POST to break the app\n');
+        return;
+      }
+      isHealthy = false;
+      response.writeHead(202, { 'Cache-Control': 'no-store' });
+      response.end('Frontend marked unhealthy\n');
+      return;
+    }
+
+    if (!isHealthy) {
+      response.writeHead(path === '/livez' ? 500 : 503, { 'Cache-Control': 'no-store' });
+      response.end('Frontend unhealthy\n');
+      return;
+    }
+
+    if (request.method === 'GET' && (path === '/livez' || path === '/readyz')) {
+      let healthy = true;
+      if (path === '/readyz') {
+        try {
+          const upstream = await fetch(new URL('/readyz', backendUrl), {
+            signal: AbortSignal.timeout(backendTimeoutMs),
+            redirect: 'error',
+          });
+          healthy = upstream.ok;
+          await upstream.body?.cancel();
+        } catch {
+          healthy = false;
+        }
+      }
+      response.writeHead(healthy ? 200 : 503, { 'Cache-Control': 'no-store' });
+      response.end(healthy ? 'OK\n' : 'Backend unavailable\n');
+      return;
+    }
 
     if (path === '/todos') {
       await proxyTodos(request, response, backendUrl, backendTimeoutMs);
@@ -120,6 +158,8 @@ export function createApp({
       <p id="todo-status" role="status" aria-live="polite">Loading todos...</p>
       <ul id="todo-list"></ul>
     </section>
+    <button id="break-app" type="button">Break app</button>
+    <p id="break-status" role="status"></p>
     <script>${todoClientScript}</script>
   </body>
 </html>
