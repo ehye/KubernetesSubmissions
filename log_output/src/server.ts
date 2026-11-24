@@ -17,11 +17,23 @@ interface ConfigOptions {
 }
 
 export function createApp(filePath: string, pingPongUrl = 'http://127.0.0.1:3001/pings', config: ConfigOptions = {}) {
-  return createServer(async (_request, response) => {
+  return createServer(async (request, response) => {
     const headers = {
       'Content-Type': 'text/plain; charset=utf-8',
       'Cache-Control': 'no-store',
     };
+
+    if (request.method === 'GET' && request.url?.split('?')[0] === '/healthz') {
+      try {
+        await requestCount(pingPongUrl);
+        response.writeHead(200, headers);
+        response.end('OK\n');
+      } catch {
+        response.writeHead(503, { ...headers, 'Retry-After': '1' });
+        response.end('Ping-pong is temporarily unavailable\n');
+      }
+      return;
+    }
 
     let content: string;
     try {

@@ -270,6 +270,20 @@ test('invalid counts and upstream HTTP errors return 503 and can recover', { tim
   assert.equal(await recovered.text(), 'timestamp: uuid.\nPing / Pongs: 3\n');
 });
 
+test('GET /healthz requires a valid Ping-pong count and recovers', { timeout: 5000 }, async t => {
+  const state = { count: '0', status: 200 };
+  const pings = await startPings(t, state);
+  const file = await temporaryFile(t);
+  const url = await listen(t, createApp(file, pings.url));
+  for (const [status, count, expected] of [[503, '0', 503], [200, 'invalid', 503], [200, '0', 200]]) {
+    Object.assign(state, { status, count });
+    const response = await fetch(`${url}healthz`);
+    assert.equal(response.status, expected);
+    assert.equal(await response.text(), expected === 200 ? 'OK\n' : 'Ping-pong is temporarily unavailable\n');
+  }
+  assert.deepEqual(pings.requests, Array(3).fill({ method: 'GET', path: '/pings' }));
+});
+
 test('an unreachable Ping-pong returns 503 rather than a false zero', { timeout: 5000 }, async t => {
   const filePath = await temporaryFile(t);
   await writeFile(filePath, 'timestamp: uuid\n');
