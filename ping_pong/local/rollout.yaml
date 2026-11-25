@@ -1,0 +1,19 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: ping-pong
+  namespace: exercises
+spec:
+  replicas: 2
+  workloadRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ping-pong-dep
+    scaleDown: onsuccess
+  strategy:
+    canary:
+      steps:
+        - setWeight: 50
+        - analysis:
+            templates:
+              - templateName: cpu-usage-rate

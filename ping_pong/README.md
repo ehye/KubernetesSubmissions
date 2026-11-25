@@ -1,81 +1,48 @@
 # Ping-pong
 
-Run commands from the repository root. Complete the
-[GKE prerequisites](../todo_app/README.md#select-the-gke-cluster) first.
+Run commands from the repository root.
 
-## 1. Publish the image
+## GKE deployment
+
+Complete the [GKE prerequisites](../todo_app/README.md#select-the-gke-cluster). If you need to publish the image, run:
 
 ```sh
 gh workflow run publish-image.yaml --ref main -f image=ping-pong -f tag=3.4
-gh run list --workflow publish-image.yaml --limit 5
 ```
 
-Build and publish `ghcr.io/ehye/ping-pong:3.4`, then check the run status.
-Wait for success. Make the package public or configure image-pull credentials.
-
-## 2. Prepare the namespace and password
+Create the namespace and check for the database password:
 
 ```sh
 kubectl create namespace exercises --dry-run=client -o yaml | kubectl apply -f -
 kubectl -n exercises get secret ping-pong-postgres-secret
 ```
 
-Create the namespace if needed and check for the database password.
-**Only if the Secret is missing on a first deployment**, run:
+**New database only:** if the Secret is missing, create it. For an existing database, reuse its password and PVC to preserve the counter.
 
 ```sh
 kubectl -n exercises create secret generic ping-pong-postgres-secret \
   --from-literal=POSTGRES_PASSWORD="$(openssl rand -hex 24)"
 ```
 
-Store a random password for the new database. Keep the existing Secret on
-subsequent deployments; do not regenerate it for an existing database.
-
-## 3. Deploy the database and application
-
 ```sh
 kubectl -n exercises apply -f log_output/manifests/postgres.yaml
 kubectl -n exercises rollout status statefulset/ping-pong-postgres --timeout=300s
 kubectl -n exercises apply -f ping_pong/manifests/
 kubectl -n exercises rollout status deployment/ping-pong-dep --timeout=300s
+kubectl -n exercises port-forward svc/ping-pong-svc 3001:2345
 ```
 
-Start PostgreSQL and wait for it, then deploy Ping-pong and wait for readiness.
-Retain `postgres-data-ping-pong-postgres-0` to preserve the counter.
+At `http://localhost:3001`, `/healthz` checks database health, `/pings` reads the counter, and `/` increments it. For public access at `/pingpong`, see the [shared Gateway guide](../log_output/README.md).
 
-For public access, follow the [Log output deployment guide](../log_output/README.md)
-to publish its image and deploy the shared Gateway.
+## Local k3d: CPU-gated canary
 
-## 4. Check internal access
+Requires Ping-pong in `exercises`, Argo Rollouts, and Prometheus scraping container CPU in `monitoring`.
 
 ```sh
-kubectl -n exercises port-forward service/ping-pong-svc 3001:2345
+kubectl --context=k3d-k3d-test apply -f ping_pong/local/
+kubectl --context=k3d-k3d-test -n exercises get rollout ping-pong --watch
 ```
 
-Forward local port `3001` to Ping-pong. Keep this terminal running and use another:
+The first revision becomes stable. For updates, change the Pod template on `ping-pong-dep` and leave that Deployment scaled to zero: Argo manages the Pods. One stable Pod and one canary share traffic while [`cpu-usage-rate`](local/cpu-analysis.yaml) checks total CPU across `exercises` every 30 seconds for five minutes. Any reading above `0.1` cores (100m) aborts promotion; missing data cannot pass.
 
-```sh
-curl -f http://127.0.0.1:3001/healthz
-curl -f http://127.0.0.1:3001/pings
-curl -f http://127.0.0.1:3001/
-curl -f http://127.0.0.1:3001/pings
-```
-
-Check database health, read the current counter, increment it, and confirm the
-new total. `/healthz` and `/pings` do not increment. Public requests use
-`/pingpong` on the Gateway instead of `/`. Stop port-forwarding with Ctrl+C.
-
-## Check persistence and logs
-
-```sh
-kubectl -n exercises rollout restart deployment/ping-pong-dep
-kubectl -n exercises rollout status deployment/ping-pong-dep --timeout=300s
-kubectl -n exercises exec ping-pong-postgres-0 -- \
-  psql -U pingpong -d pingpong -c 'SELECT * FROM ping_counter;'
-kubectl -n exercises logs deployment/ping-pong-dep --tail=50
-kubectl -n exercises get pods,pvc
-```
-
-Restart Ping-pong, inspect the saved counter directly, and check logs/storage.
-Do not delete the database PVC. If port-forwarding was active, restart it after
-the Pod is replaced.
+**Test rejection:** set the threshold to `0`, reapply the template, and change a Pod-template annotation. Check the failed run with `kubectl --context=k3d-k3d-test -n exercises get analysisrun`. Restore `0.1`, reapply, and undo the test annotation.
