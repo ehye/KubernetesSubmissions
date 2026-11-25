@@ -48,11 +48,12 @@ export function createApp(todos: TodoStore) {
       }
       return;
     }
-    if (path !== '/todos') {
+    const id = path?.match(/^\/todos\/([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$/i)?.[1];
+    if (path !== '/todos' && !id) {
       sendJson(response, 404, { error: 'Not found' });
       return;
     }
-    if (request.method === 'GET') {
+    if (!id && request.method === 'GET') {
       try {
         sendJson(response, 200, await todos.list());
       } catch {
@@ -61,8 +62,8 @@ export function createApp(todos: TodoStore) {
       }
       return;
     }
-    if (request.method !== 'POST') {
-      response.setHeader('Allow', 'GET, POST');
+    if (request.method !== (id ? 'PUT' : 'POST')) {
+      response.setHeader('Allow', id ? 'PUT' : 'GET, POST');
       sendJson(response, 405, { error: 'Method not allowed' });
       return;
     }
@@ -76,10 +77,10 @@ export function createApp(todos: TodoStore) {
         timestamp: new Date().toISOString(),
         event: 'todo_request',
         requestId,
-        method: 'POST',
-        path: '/todos',
+        method: request.method,
+        path,
         status,
-        outcome: status === 201 ? 'created' : status >= 500 ? 'failed' : 'rejected',
+        outcome: status === 201 ? 'created' : status === 200 ? 'updated' : status >= 500 ? 'failed' : 'rejected',
         reason,
         text: submittedText,
         length: submittedText?.length,
@@ -108,6 +109,17 @@ export function createApp(todos: TodoStore) {
         respond(400, 'invalid_json', { error: 'Invalid JSON' });
         return;
       }
+      if (id) {
+        if (typeof input !== 'object' || input === null || !('done' in input) || input.done !== true) {
+          respond(400, 'invalid_done', { error: 'Expected done: true' }, id);
+          return;
+        }
+        failureReason = 'database_unavailable';
+        const updated = await todos.markDone(id);
+        if (updated) respond(200, 'marked_done', updated, id);
+        else respond(404, 'not_found', { error: 'Todo not found' }, id);
+        return;
+      }
       if (typeof input !== 'object' || input === null || !('text' in input) || typeof input.text !== 'string') {
         respond(400, 'missing_text', { error: 'Todo text is required' });
         return;
@@ -120,7 +132,7 @@ export function createApp(todos: TodoStore) {
         });
         return;
       }
-      const todo = { id: randomUUID(), text };
+      const todo = { id: randomUUID(), text, done: false };
       failureReason = 'database_unavailable';
       const saved = await todos.create(todo);
       respond(201, 'created', saved, saved.id);

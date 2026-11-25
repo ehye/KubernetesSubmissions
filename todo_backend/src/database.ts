@@ -3,12 +3,14 @@ import pg from 'pg';
 export interface Todo {
   id: string;
   text: string;
+  done: boolean;
 }
 
 export interface TodoStore {
   checkReady(): Promise<void>;
   list(): Promise<Todo[]>;
   create(todo: Todo): Promise<Todo>;
+  markDone(id: string): Promise<Todo | undefined>;
 }
 
 export function createDatabase(env: NodeJS.ProcessEnv) {
@@ -40,7 +42,7 @@ export function createDatabase(env: NodeJS.ProcessEnv) {
         position BIGINT GENERATED ALWAYS AS IDENTITY UNIQUE,
         id UUID PRIMARY KEY,
         text TEXT NOT NULL CHECK (length(btrim(text)) > 0)
-      )`).then(() => {}).catch(error => {
+      ); ALTER TABLE todos ADD COLUMN IF NOT EXISTS done BOOLEAN NOT NULL DEFAULT FALSE`).then(() => {}).catch(error => {
         schemaReady = undefined;
         throw error;
       });
@@ -53,14 +55,21 @@ export function createDatabase(env: NodeJS.ProcessEnv) {
     },
     async list(): Promise<Todo[]> {
       await ensureSchema();
-      const result = await pool.query<Todo>('SELECT id, text FROM todos ORDER BY position');
+      const result = await pool.query<Todo>('SELECT id, text, done FROM todos ORDER BY position');
       return result.rows;
     },
     async create(todo: Todo): Promise<Todo> {
       await ensureSchema();
       const result = await pool.query<Todo>(
-        'INSERT INTO todos (id, text) VALUES ($1, $2) RETURNING id, text',
+        'INSERT INTO todos (id, text) VALUES ($1, $2) RETURNING id, text, done',
         [todo.id, todo.text],
+      );
+      return result.rows[0];
+    },
+    async markDone(id: string): Promise<Todo | undefined> {
+      await ensureSchema();
+      const result = await pool.query<Todo>(
+        'UPDATE todos SET done = TRUE WHERE id = $1 RETURNING id, text, done', [id],
       );
       return result.rows[0];
     },

@@ -79,8 +79,8 @@ export function createApp({
       return;
     }
 
-    if (path === '/todos') {
-      await proxyTodos(request, response, backendUrl, backendTimeoutMs);
+    if (path === '/todos' || (path && /^\/todos\/[a-zA-Z0-9-]+$/.test(path))) {
+      await proxyTodos(request, response, backendUrl, backendTimeoutMs, path);
       return;
     }
 
@@ -141,7 +141,9 @@ export function createApp({
       input { flex: 1; min-width: 0; padding: 8px; font: inherit; }
       button { padding: 8px 16px; font: inherit; }
       small { display: block; margin-top: 8px; }
-      li { margin: 8px 0; }
+      #todo-list { padding: 0; }
+      #todo-list li { display: flex; align-items: center; gap: 12px; margin: 8px 0; overflow-wrap: anywhere; }
+      #todo-list button { flex: none; margin-left: auto; }
     </style>
   </head>
   <body>

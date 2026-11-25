@@ -137,11 +137,11 @@ test('server process reads TODO_BACKEND_URL', { timeout: 5000 }, async t => {
 
 // A minimal DOM stub tests the browser behavior without adding a frontend framework.
 function browser(fetch) {
-  function element() {
+  function element(tag) {
     const node = {
-      value: '', disabled: false, textContent: '', children: [], handlers: {},
+      tag, value: '', disabled: false, textContent: '', children: [], handlers: {},
       addEventListener(event, handler) { this.handlers[event] = handler; },
-      replaceChildren() { this.children = []; },
+      replaceChildren(...children) { this.children = children; },
       append(child) { this.children.push(child); },
       focus() { this.focused = true; },
     };
@@ -150,7 +150,7 @@ function browser(fetch) {
   }
   const nodes = Object.fromEntries(['todo-form', 'todo-input', 'todo-send', 'todo-list', 'todo-status', 'break-app', 'break-status'].map(id => [id, element()]));
   runInNewContext(todoClientScript, {
-    document: { getElementById: id => nodes[id], createElement: () => element() }, fetch,
+    document: { getElementById: id => nodes[id], createElement: element }, fetch,
   });
   return nodes;
 }
@@ -185,7 +185,7 @@ test('browser fetches the list and renders todo text without interpreting HTML',
   assert.equal(nodes['todo-send'].disabled, true);
   await settle();
   assert.equal(calls[0].url, '/todos');
-  assert.equal(nodes['todo-list'].children[0].textContent, dangerous);
+  assert.equal(nodes['todo-list'].children[0].children[0].textContent, dangerous);
   assert.equal(nodes['todo-send'].disabled, false);
 });
 
@@ -214,11 +214,41 @@ test('browser Send creates a todo, reloads the list, and clears the input', asyn
   assert.equal(calls[1].url, '/todos');
   assert.equal(calls[1].options.headers['Content-Type'], 'application/json');
   assert.deepEqual(JSON.parse(calls[1].options.body), { text: 'Buy groceries' });
-  assert.equal(nodes['todo-list'].children[0].textContent, 'Buy groceries');
+  assert.equal(nodes['todo-list'].children[0].children[0].textContent, 'Buy groceries');
   assert.equal(nodes['todo-input'].value, '');
   assert.equal(nodes['todo-input'].disabled, false);
   assert.equal(nodes['todo-send'].disabled, false);
   assert.equal(nodes['todo-status'].textContent, 'Todo added.');
+});
+
+test('Mark done retries after failure, sends PUT through proxy, and stays struck through on reload', async t => {
+  const todo = { id: 'one', text: 'Read', done: false };
+  const state = { status: 200, body: [todo] };
+  const backend = await backendStub(t, state);
+  const base = await listen(t, createApp({ backendUrl: backend.url }));
+  const open = async () => {
+    const nodes = browser((url, options) => fetch(base + url, options));
+    while (nodes['todo-send'].disabled) await settle();
+    return nodes['todo-list'].children[0];
+  };
+  const item = await open();
+  const mark = item.children[1];
+  assert.equal(mark.textContent, 'Mark done');
+  Object.assign(state, { status: 503, body: { error: 'Unavailable' } });
+  await mark.handlers.click();
+  assert.equal(mark.disabled, false);
+  assert.equal(item.children[0].tag, 'span');
+  Object.assign(state, { status: 200, body: { ...todo, done: true } });
+  await mark.handlers.click();
+  assert.deepEqual(backend.requests.at(-1), {
+    path: '/todos/one', method: 'PUT', contentType: 'application/json', body: '{"done":true}',
+  });
+  state.body = [state.body];
+  for (const row of [item, await open()]) {
+    assert.equal(row.children.length, 1);
+    assert.equal(row.children[0].tag, 's');
+    assert.equal(row.children[0].textContent, todo.text);
+  }
 });
 
 test('browser rejects empty or overlong text without sending a POST', async () => {
