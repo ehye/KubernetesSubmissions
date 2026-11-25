@@ -25,7 +25,15 @@ async function startApp(t, store) {
   if (!store) {
     // In-memory fixture only for HTTP unit tests; production uses PostgreSQL.
     const todos = [];
-    store = { list: async () => [...todos], create: async todo => { todos.push(todo); return todo; } };
+    store = {
+      list: async () => [...todos],
+      create: async todo => { todos.push(todo); return todo; },
+      markDone: async id => {
+        const todo = todos.find(row => row.id === id);
+        if (todo) todo.done = true;
+        return todo;
+      },
+    };
   }
   const server = createApp(store);
   t.after(() => { server.closeAllConnections(); server.close(); });
@@ -101,6 +109,20 @@ test('POST /todos creates trimmed text and unique IDs that GET returns', { timeo
   }
   assert.notEqual(created[0].id, created[1].id);
   assert.deepEqual(await (await fetch(`${base}/todos?example=1`)).json(), created);
+});
+
+test('PUT marks one todo done idempotently', async t => {
+  const base = await startApp(t);
+  const todo = await (await createTodo(base, 'Read')).json();
+  assert.equal(todo.done, false);
+  const put = (id, done) => fetch(`${base}/todos/${id}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ done }),
+  });
+  assert.equal((await put(todo.id, 'true')).status, 400);
+  assert.equal((await put('00000000-0000-0000-0000-000000000000', true)).status, 404);
+  const expected = { ...todo, done: true };
+  for (let i = 0; i < 2; i++) assert.deepEqual(await (await put(todo.id, true)).json(), expected);
+  assert.deepEqual(await (await fetch(`${base}/todos`)).json(), [expected]);
 });
 
 test('invalid JSON, missing text, empty text, and overlong text are rejected', { timeout: 5000 }, async t => {

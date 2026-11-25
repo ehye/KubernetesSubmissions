@@ -8,16 +8,17 @@ function sendJson(response: ServerResponse, status: number, body: unknown): void
   response.end(JSON.stringify(body));
 }
 
-export async function proxyTodos(request: IncomingMessage, response: ServerResponse, backendUrl: string, timeoutMs: number): Promise<void> {
-  if (request.method !== 'GET' && request.method !== 'POST') {
-    response.setHeader('Allow', 'GET, POST');
+export async function proxyTodos(request: IncomingMessage, response: ServerResponse, backendUrl: string, timeoutMs: number, path: string): Promise<void> {
+  const allowed = path === '/todos' ? ['GET', 'POST'] : ['PUT'];
+  if (!allowed.includes(request.method ?? '')) {
+    response.setHeader('Allow', allowed.join(', '));
     sendJson(response, 405, { error: 'Method not allowed' });
     return;
   }
 
   try {
     let body: string | undefined;
-    if (request.method === 'POST') {
+    if (request.method !== 'GET') {
       const chunks: Buffer[] = [];
       let size = 0;
       for await (const chunk of request) {
@@ -31,9 +32,9 @@ export async function proxyTodos(request: IncomingMessage, response: ServerRespo
       body = Buffer.concat(chunks).toString('utf8');
     }
 
-    const upstream = await fetch(new URL('/todos', backendUrl), {
+    const upstream = await fetch(new URL(path, backendUrl), {
       method: request.method,
-      headers: request.method === 'POST' ? { 'Content-Type': request.headers['content-type'] ?? 'application/octet-stream' } : undefined,
+      headers: body !== undefined ? { 'Content-Type': request.headers['content-type'] ?? 'application/octet-stream' } : undefined,
       body,
       signal: AbortSignal.timeout(timeoutMs),
     });

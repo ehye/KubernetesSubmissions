@@ -24,7 +24,34 @@ function renderTodos(todos) {
   list.replaceChildren();
   for (const todo of todos) {
     const item = document.createElement('li');
-    item.textContent = todo.text;
+    const label = document.createElement(todo.done ? 's' : 'span');
+    label.textContent = todo.text;
+    item.append(label);
+    if (!todo.done) {
+      const mark = document.createElement('button');
+      mark.type = 'button';
+      mark.textContent = 'Mark done';
+      mark.addEventListener('click', async () => {
+        mark.disabled = true;
+        try {
+          const response = await fetch('/todos/' + encodeURIComponent(todo.id), {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ done: true }),
+          });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error || 'Unable to mark todo done');
+          const completed = document.createElement('s');
+          completed.textContent = result.text;
+          item.replaceChildren(completed);
+          status.textContent = 'Todo marked done.';
+        } catch (error) {
+          status.textContent = error.message || 'Unable to mark todo done. Please try again.';
+          mark.disabled = false;
+        }
+      });
+      item.append(mark);
+    }
     list.append(item);
   }
 }
