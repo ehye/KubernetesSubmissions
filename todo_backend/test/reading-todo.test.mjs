@@ -11,6 +11,10 @@ async function setup(t, state = {}) {
   const server = createServer(async (request, response) => {
     if (request.url === '/wiki/Special:Random') {
       wikiRequests.push(request.headers);
+      if (state.disconnectFirst && wikiRequests.length === 1) {
+        request.socket.destroy();
+        return;
+      }
       if (state.stallWikipedia) return;
       if (state.wikipediaStatus) {
         response.writeHead(state.wikipediaStatus);
@@ -63,6 +67,13 @@ test('does not create a todo when Wikipedia fails or does not return an article'
     await assert.rejects(createReadingTodo(config), /Wikipedia/);
     assert.equal(posts.length, 0);
   }
+});
+
+test('a dropped Wikipedia connection is retried without duplicating the todo', async t => {
+  const { config, posts, wikiRequests } = await setup(t, { disconnectFirst: true });
+  await createReadingTodo(config);
+  assert.equal(wikiRequests.length, 2);
+  assert.equal(posts.length, 1);
 });
 
 test('redirects to another origin are rejected', async t => {

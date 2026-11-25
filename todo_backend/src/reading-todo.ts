@@ -33,14 +33,30 @@ export function loadReadingTodoConfig(env: NodeJS.ProcessEnv): ReadingTodoConfig
   };
 }
 
-export async function createReadingTodo(config: ReadingTodoConfig): Promise<string> {
-  let text: string;
-  while (true) {
-    const article = await fetch(config.randomUrl, {
+function requestError(endpoint: string, error: unknown): Error {
+  const detail = error instanceof Error ? error.message : String(error);
+  const cause = error instanceof Error && error.cause instanceof Error ? ` (${error.cause.message})` : '';
+  return new Error(`${endpoint}: ${detail}${cause}`);
+}
+
+async function fetchArticle(config: ReadingTodoConfig): Promise<Response> {
+  const get = () => fetch(config.randomUrl, {
       headers: { 'Accept-Language': config.language, 'User-Agent': config.userAgent },
       redirect: 'follow',
       signal: AbortSignal.timeout(config.timeoutMs),
-    });
+  });
+  try {
+    return await get();
+  } catch {
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    return get().catch(error => { throw requestError('Wikipedia GET failed after retry', error); });
+  }
+}
+
+export async function createReadingTodo(config: ReadingTodoConfig): Promise<string> {
+  let text: string;
+  while (true) {
+    const article = await fetchArticle(config);
     // Only the final redirect URL is needed; do not download the article body.
     await article.body?.cancel();
     if (!article.ok) throw new Error(`Wikipedia returned HTTP ${article.status}`);
@@ -60,7 +76,7 @@ export async function createReadingTodo(config: ReadingTodoConfig): Promise<stri
     body: JSON.stringify({ text }),
     redirect: 'error',
     signal: AbortSignal.timeout(config.timeoutMs),
-  });
+  }).catch(error => { throw requestError('Todo backend POST failed', error); });
   await response.body?.cancel();
   if (response.status !== 201) throw new Error(`Todo backend returned HTTP ${response.status}; todo creation was not confirmed`);
   return text;
