@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: cpu-usage-rate
+  namespace: exercises
+spec:
+  metrics:
+    - name: namespace-cpu-cores
+      # Measure immediately and every 30 seconds through the five-minute mark.
+      count: 11
+      interval: 30s
+      failureLimit: 0
+      successCondition: len(result) == 1 && result[0] <= 0.1
+      provider:
+        prometheus:
+          address: http://prometheus-server.monitoring.svc.cluster.local
+          query: |
+            sum(rate(container_cpu_usage_seconds_total{
+              namespace="exercises", container!="", container!="POD"
+            }[5m]))
