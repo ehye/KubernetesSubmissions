@@ -1,4 +1,5 @@
 import pg from 'pg';
+import type { TodoAction } from './status-publisher.js';
 
 export interface Todo {
   id: string;
@@ -13,7 +14,7 @@ export interface TodoStore {
   markDone(id: string): Promise<Todo | undefined>;
 }
 
-export function createDatabase(env: NodeJS.ProcessEnv) {
+export function createDatabase(env: NodeJS.ProcessEnv, publish?: (action: TodoAction) => void) {
   for (const name of ['PGHOST', 'PGPORT', 'PGDATABASE', 'PGUSER', 'PGPASSWORD']) {
     if (!env[name]?.trim()) throw new Error(`${name} is required`);
   }
@@ -64,14 +65,20 @@ export function createDatabase(env: NodeJS.ProcessEnv) {
         'INSERT INTO todos (id, text) VALUES ($1, $2) RETURNING id, text, done',
         [todo.id, todo.text],
       );
+      publish?.('created');
       return result.rows[0];
     },
     async markDone(id: string): Promise<Todo | undefined> {
       await ensureSchema();
       const result = await pool.query<Todo>(
-        'UPDATE todos SET done = TRUE WHERE id = $1 RETURNING id, text, done', [id],
+        'UPDATE todos SET done = TRUE WHERE id = $1 AND NOT done RETURNING id, text, done', [id],
       );
-      return result.rows[0];
+      if (result.rows[0]) {
+        publish?.('updated');
+        return result.rows[0];
+      }
+      // An already-completed Todo is a successful PUT, but not another event.
+      return (await pool.query<Todo>('SELECT id, text, done FROM todos WHERE id = $1', [id])).rows[0];
     },
     close: () => pool.end(),
   };
