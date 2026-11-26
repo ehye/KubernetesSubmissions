@@ -1,0 +1,13 @@
+{
+  "name": "todo-broadcaster",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test"
+  },
+  "packageManager": "pnpm@12.16.1",
+  "dependencies": {
+    "@nats-io/transport-node": "3.5.0"
+  }
+}
