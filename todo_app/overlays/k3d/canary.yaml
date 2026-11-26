@@ -1,0 +1,22 @@
+- op: replace
+  path: /apiVersion
+  value: argoproj.io/v1alpha1
+- op: replace
+  path: /kind
+  value: Rollout
+- op: replace
+  path: /spec/replicas
+  value: 2
+- op: replace
+  path: /spec/strategy
+  value:
+    canary:
+      steps:
+        - setWeight: 50
+        - analysis:
+            templates:
+              - templateName: restart-rate
+            args:
+              - name: canary-hash
+                valueFrom:
+                  podTemplateHashValue: Latest
