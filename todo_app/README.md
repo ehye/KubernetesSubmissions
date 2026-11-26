@@ -18,8 +18,14 @@ kubectl --context=k3d-k3d-test apply -f cluster/k3d-envoy.yaml
 kubectl --context=k3d-k3d-test apply --dry-run=server -k todo_app/overlays/k3d
 ```
 
-Once the overlay is on `main`, apply `cluster/argocd/todo-app.yaml` to
-`k3d-k3d-test`. For updates, import a new image tag before changing `images`
+Once the overlay is on `main`, enable sync from that branch:
+
+```sh
+kubectl --context=k3d-k3d-test apply -f cluster/argocd/todo-app.yaml
+kubectl --context=k3d-k3d-test -n argocd get application todo-app
+```
+
+For updates, import a new image tag before changing `images`
 in the overlay and pushing the commit. Check `todo-app` in Argo CD, watch
 `kubectl argo rollouts get rollout todo-app-dep -n project --context=k3d-k3d-test`,
 and open <http://localhost:8081>. For migration from the frontend-only Application,
