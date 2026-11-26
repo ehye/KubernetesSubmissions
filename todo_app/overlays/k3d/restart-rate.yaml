@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: restart-rate
+spec:
+  args:
+    - name: canary-hash
+  metrics:
+    - name: canary-container-restarts
+      initialDelay: 75s
+      interval: 1m
+      count: 2
+      failureLimit: 0
+      successCondition: len(result) == 1 && result[0] == 0
+      failureCondition: len(result) != 1 || result[0] > 0
+      provider:
+        prometheus:
+          address: http://prometheus-server.monitoring.svc.cluster.local:80
+          query: |
+            max(max_over_time(kube_pod_container_status_restarts_total{
+              namespace="project", container="todo-app",
+              pod=~"todo-app-dep-{{args.canary-hash}}-[a-z0-9]+"
+            }[2m]))

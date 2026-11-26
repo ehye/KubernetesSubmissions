@@ -1,7 +1,32 @@
 # Todo app
 
-Run all commands from the repository root. Complete the
-[GKE prerequisites](#select-the-gke-cluster) first.
+Run all commands from the repository root.
+
+## Local k3d GitOps
+
+Argo CD syncs `todo_app/overlays/k3d` to `project`. The frontend uses a
+two-Pod canary with Prometheus restart checks. The same overlay manages the
+backend, PostgreSQL, reading CronJob, and `todo-local` Envoy Gateway.
+The existing `todo-postgres-secret` and `shared-data-pvc` are prerequisites.
+Install Argo CD, Argo Rollouts, Prometheus, and Envoy Gateway in the local cluster.
+
+```sh
+docker build -t todo-app:4.8 todo_app
+docker build -t todo-backend:4.6 todo_backend
+k3d image import todo-app:4.8 todo-backend:4.6 -c k3d-test
+kubectl --context=k3d-k3d-test apply -f cluster/k3d-envoy.yaml
+kubectl --context=k3d-k3d-test apply --dry-run=server -k todo_app/overlays/k3d
+```
+
+Once the overlay is on `main`, apply `cluster/argocd/todo-app.yaml` to
+`k3d-k3d-test`. For updates, import a new image tag before changing `images`
+in the overlay and pushing the commit. Check `todo-app` in Argo CD, watch
+`kubectl argo rollouts get rollout todo-app-dep -n project --context=k3d-k3d-test`,
+and open <http://localhost:8081>. For migration from the frontend-only Application,
+disable pruning before switching paths; remove the old frontend Deployment
+only after verifying the Rollout serves requests.
+
+The following sections describe the separate GKE setup.
 
 ## Select the GKE cluster
 
