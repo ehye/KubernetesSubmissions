@@ -5,6 +5,8 @@ resources:
   - manifests/configmap.yaml
   - manifests/deployment.yaml
   - manifests/service.yaml
-  - manifests/healthcheckpolicy.yaml
   - manifests/gateway.yaml
   - manifests/route.yaml
+images:
+  - name: log-output
+    newTag: "3.4"

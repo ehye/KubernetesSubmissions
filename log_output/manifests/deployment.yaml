@@ -17,7 +17,8 @@ spec:
     spec:
       containers:
         - name: writer
-          image: ghcr.io/ehye/log-output:3.4
+          image: log-output
+          imagePullPolicy: Never
           command: ["node", "dist/writer.js"]
           resources:
             requests:
@@ -33,7 +34,8 @@ spec:
             - name: log-data
               mountPath: /shared
         - name: reader
-          image: ghcr.io/ehye/log-output:3.4
+          image: log-output
+          imagePullPolicy: Never
           command: ["node", "dist/index.js"]
           resources:
             requests:

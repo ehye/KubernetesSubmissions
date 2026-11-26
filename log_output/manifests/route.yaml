@@ -1,11 +1,11 @@
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
-  name: log-output-route
+  name: exercises-local
   namespace: exercises
 spec:
   parentRefs:
-  - name: log-output-gateway
+  - name: exercises-local
     sectionName: http
   rules:
   - matches:
