@@ -1,0 +1,544 @@
+apiVersion: v1
+data:
+  BACKEND_TIMEOUT_MS: "3000"
+  ENABLE_SHUTDOWN_TEST: "false"
+  HOST: 0.0.0.0
+  IMAGE_CACHE_DURATION_MS: "600000"
+  IMAGE_CACHE_FILE: /shared/todo-image/image.jpg
+  IMAGE_RETRY_AFTER_SECONDS: "5"
+  IMAGE_TIMEOUT_MS: "15000"
+  PICSUM_URL: https://picsum.photos/1200
+  PORT: "3000"
+  SHUTDOWN_TIMEOUT_MS: "10000"
+  TODO_BACKEND_URL: http://todo-backend-svc:2345
+kind: ConfigMap
+metadata:
+  name: todo-app-config
+  namespace: production
+---
+apiVersion: v1
+data:
+  GCS_BUCKET: gs://dwk-project-bakcup-bucket
+kind: ConfigMap
+metadata:
+  name: todo-backup-config
+  namespace: production
+---
+apiVersion: v1
+data:
+  POSTGRES_DB: todos
+  POSTGRES_USER: todo
+kind: ConfigMap
+metadata:
+  name: todo-postgres-config
+  namespace: production
+---
+apiVersion: v1
+data:
+  REQUEST_TIMEOUT_MS: "15000"
+  TODO_API_URL: http://todo-backend-svc:2345/todos
+  WIKIPEDIA_LANGUAGE: en-US
+  WIKIPEDIA_RANDOM_URL: https://en.wikipedia.org/wiki/Special:Random
+  WIKIPEDIA_USER_AGENT: TodoReadingReminder/1.0 (https://github.com/ehye/KubernetesSubmissions)
+kind: ConfigMap
+metadata:
+  name: todo-reading-config
+  namespace: production
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: todo-app-svc
+  namespace: production
+spec:
+  ports:
+  - port: 2345
+    protocol: TCP
+    targetPort: 3000
+  selector:
+    app: todo-app
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: todo-backend-svc
+  namespace: production
+spec:
+  ports:
+  - port: 2345
+    targetPort: 3000
+  selector:
+    app: todo-backend
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: todo-postgres-svc
+  namespace: production
+spec:
+  clusterIP: None
+  ports:
+  - name: postgres
+    port: 5432
+    targetPort: postgres
+  selector:
+    app: todo-postgres
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: shared-data-pvc
+  namespace: production
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: local-path
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: broadcaster
+  namespace: production
+spec:
+  replicas: 6
+  selector:
+    matchLabels:
+      app: broadcaster
+  template:
+    metadata:
+      labels:
+        app: broadcaster
+    spec:
+      containers:
+      - env:
+        - name: NATS_URL
+          value: nats://my-nats.nats.svc.cluster.local:4222
+        - name: DISCORD_WEBHOOK_URL
+          valueFrom:
+            secretKeyRef:
+              key: DISCORD_WEBHOOK_URL
+              name: broadcaster-discord
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: NATS_SUBJECT
+          value: todos.$(POD_NAMESPACE).status
+        image: ghcr.io/ehye/broadcaster@sha256:60730620a7aa169c23075199a0cf60ceaf062761dfe260fadc6857eea8b4abdf
+        name: broadcaster
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 10m
+            memory: 32Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: todo-backend-dep
+  namespace: production
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: todo-backend
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: todo-backend
+    spec:
+      containers:
+      - env:
+        - name: NATS_URL
+          value: nats://my-nats.nats.svc.cluster.local:4222
+        - name: HOST
+          value: 0.0.0.0
+        - name: SHUTDOWN_TIMEOUT_MS
+          value: "10000"
+        - name: PORT
+          value: "3000"
+        - name: PGHOST
+          value: todo-postgres-svc
+        - name: PGPORT
+          value: "5432"
+        - name: PGCONNECT_TIMEOUT_MS
+          value: "1000"
+        - name: PGSTATEMENT_TIMEOUT_MS
+          value: "1000"
+        - name: PGDATABASE
+          valueFrom:
+            configMapKeyRef:
+              key: POSTGRES_DB
+              name: todo-postgres-config
+        - name: PGUSER
+          valueFrom:
+            configMapKeyRef:
+              key: POSTGRES_USER
+              name: todo-postgres-config
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: POSTGRES_PASSWORD
+              name: todo-postgres-secret
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: NATS_SUBJECT
+          value: todos.$(POD_NAMESPACE).status
+        image: ghcr.io/ehye/todo-backend@sha256:6b50c000bc30fc0e7967cb4f265453bedcf325e74d202538e20937505d07174f
+        livenessProbe:
+          httpGet:
+            path: /livez
+            port: 3000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        name: todo-backend
+        ports:
+        - containerPort: 3000
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 3000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 5
+        resources:
+          limits:
+            cpu: 250m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: todo-postgres
+  namespace: production
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: todo-postgres
+  serviceName: todo-postgres-svc
+  template:
+    metadata:
+      labels:
+        app: todo-postgres
+    spec:
+      containers:
+      - env:
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: POSTGRES_PASSWORD
+              name: todo-postgres-secret
+        envFrom:
+        - configMapRef:
+            name: todo-postgres-config
+        image: postgres:18
+        name: postgres
+        ports:
+        - containerPort: 5432
+          name: postgres
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 50m
+            memory: 128Mi
+        volumeMounts:
+        - mountPath: /var/lib/postgresql
+          name: postgres-data
+  volumeClaimTemplates:
+  - metadata:
+      name: postgres-data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+      storageClassName: local-path
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: todo-backup
+  namespace: production
+spec:
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 900
+      backoffLimit: 0
+      template:
+        spec:
+          automountServiceAccountToken: false
+          containers:
+          - command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              set -- /backup/backup-????-??-??.sql
+              test "$#" -eq 1
+              test -s "$1"
+              gcloud auth activate-service-account --key-file=/var/secrets/google/key.json --quiet
+              destination="${GCS_BUCKET}/${POD_NAMESPACE}/$(basename "$1")"
+              gcloud storage cp "$1" "$destination" --if-generation-match=0
+              echo "Uploaded $destination"
+            env:
+            - name: GCS_BUCKET
+              valueFrom:
+                configMapKeyRef:
+                  key: GCS_BUCKET
+                  name: todo-backup-config
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: CLOUDSDK_CONFIG
+              value: /tmp/gcloud
+            image: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable
+            name: upload
+            resources:
+              limits:
+                cpu: 500m
+                memory: 512Mi
+              requests:
+                cpu: 50m
+                memory: 128Mi
+            volumeMounts:
+            - mountPath: /backup
+              name: backup
+              readOnly: true
+            - mountPath: /var/secrets/google
+              name: google-credentials
+              readOnly: true
+          initContainers:
+          - command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              umask 077
+              file="/backup/backup-$(date -u +%Y-%m-%d).sql"
+              pg_dump --format=plain --no-owner --no-privileges --file="$file"
+              test -s "$file"
+              echo "Created $(basename "$file")"
+            env:
+            - name: PGHOST
+              value: todo-postgres-svc
+            - name: PGPORT
+              value: "5432"
+            - name: PGCONNECT_TIMEOUT
+              value: "10"
+            - name: PGDATABASE
+              valueFrom:
+                configMapKeyRef:
+                  key: POSTGRES_DB
+                  name: todo-postgres-config
+            - name: PGUSER
+              valueFrom:
+                configMapKeyRef:
+                  key: POSTGRES_USER
+                  name: todo-postgres-config
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: POSTGRES_PASSWORD
+                  name: todo-postgres-secret
+            image: postgres:18
+            name: dump
+            resources:
+              limits:
+                cpu: 500m
+                memory: 256Mi
+              requests:
+                cpu: 50m
+                memory: 64Mi
+            volumeMounts:
+            - mountPath: /backup
+              name: backup
+          restartPolicy: Never
+          volumes:
+          - emptyDir:
+              sizeLimit: 1Gi
+            name: backup
+          - name: google-credentials
+            secret:
+              defaultMode: 256
+              secretName: todo-backup-gcs-secret
+  schedule: 0 2 * * *
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 1
+  timeZone: Etc/UTC
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: todo-reading
+  namespace: production
+spec:
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 60
+      backoffLimit: 0
+      template:
+        spec:
+          containers:
+          - command:
+            - node
+            - dist/reading-job.js
+            envFrom:
+            - configMapRef:
+                name: todo-reading-config
+            image: ghcr.io/ehye/todo-backend@sha256:6b50c000bc30fc0e7967cb4f265453bedcf325e74d202538e20937505d07174f
+            name: reading-todo
+            resources:
+              limits:
+                cpu: 100m
+                memory: 128Mi
+              requests:
+                cpu: 10m
+                memory: 32Mi
+          restartPolicy: Never
+  schedule: 0 * * * *
+  successfulJobsHistoryLimit: 1
+  timeZone: Etc/UTC
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: restart-rate
+  namespace: production
+spec:
+  args:
+  - name: canary-hash
+  - name: namespace
+    value: production
+  metrics:
+  - count: 2
+    failureCondition: len(result) != 1 || result[0] > 0
+    failureLimit: 0
+    initialDelay: 75s
+    interval: 1m
+    name: canary-container-restarts
+    provider:
+      prometheus:
+        address: http://prometheus-server.monitoring.svc.cluster.local:80
+        query: |
+          max(max_over_time(kube_pod_container_status_restarts_total{
+            namespace="{{args.namespace}}", container="todo-app",
+            pod=~"todo-app-dep-{{args.canary-hash}}-[a-z0-9]+"
+          }[2m]))
+    successCondition: len(result) == 1 && result[0] == 0
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: todo-app-dep
+  namespace: production
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: todo-app
+  strategy:
+    canary:
+      steps:
+      - setWeight: 50
+      - analysis:
+          args:
+          - name: canary-hash
+            valueFrom:
+              podTemplateHashValue: Latest
+          templates:
+          - templateName: restart-rate
+  template:
+    metadata:
+      labels:
+        app: todo-app
+    spec:
+      containers:
+      - envFrom:
+        - configMapRef:
+            name: todo-app-config
+        image: ghcr.io/ehye/todo-app@sha256:f3d94a3069f11dc6e8a67bbdc2549214a6fb415d49199d276a55faf644e5a517
+        livenessProbe:
+          httpGet:
+            path: /livez
+            port: 3000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        name: todo-app
+        ports:
+        - containerPort: 3000
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 3000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 5
+        resources:
+          limits:
+            cpu: 250m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+        volumeMounts:
+        - mountPath: /shared
+          name: shared-data
+      volumes:
+      - name: shared-data
+        persistentVolumeClaim:
+          claimName: shared-data-pvc
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: todo-local
+  namespace: production
+spec:
+  gatewayClassName: local-envoy
+  listeners:
+  - name: http
+    port: 18082
+    protocol: HTTP
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: todo-local
+  namespace: production
+spec:
+  parentRefs:
+  - name: todo-local
+  rules:
+  - backendRefs:
+    - name: todo-app-svc
+      port: 2345
