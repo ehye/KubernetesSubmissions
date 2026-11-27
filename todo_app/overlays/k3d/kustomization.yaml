@@ -2,8 +2,7 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: project
 resources:
-  - ../../manifests
-  - ../../../todo_backend/manifests
+  - ../../base
   - restart-rate.yaml
   - gateway.yaml
 images:
@@ -11,8 +10,6 @@ images:
     newTag: "4.8"
   - name: todo-backend
     newTag: "4.6"
-configurations:
-  - rollout-images.yaml
 patches:
   - target:
       kind: Deployment
