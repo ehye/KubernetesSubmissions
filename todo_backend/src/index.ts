@@ -8,7 +8,7 @@ let publisher: ReturnType<typeof createStatusPublisher> | undefined;
 try {
   const port = parsePort(process.env.PORT);
   const config = loadConfig(process.env);
-  publisher = createStatusPublisher(process.env.NATS_URL);
+  publisher = createStatusPublisher(process.env.NATS_URL, process.env.NATS_SUBJECT);
   database = createDatabase(process.env, publisher.publish);
   const store = database;
   const server = createApp(store);

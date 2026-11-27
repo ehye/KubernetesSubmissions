@@ -2,7 +2,7 @@ import { connect, type NatsConnection } from '@nats-io/transport-node';
 
 export type TodoAction = 'created' | 'updated';
 
-export function createStatusPublisher(url: string | undefined) {
+export function createStatusPublisher(url: string | undefined, subject = 'todos.status') {
   let nc: NatsConnection | undefined;
   let connecting = false;
   let stopped = false;
@@ -27,7 +27,7 @@ export function createStatusPublisher(url: string | undefined) {
         return;
       }
       try {
-        nc.publish('todos.status', JSON.stringify({ user: 'bot', message: `A todo was ${action}` }));
+        nc.publish(subject, JSON.stringify({ user: 'bot', message: `A todo was ${action}` }));
       } catch {
         console.warn('Dropped Todo status publication');
       }

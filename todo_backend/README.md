@@ -143,7 +143,7 @@ Keep an existing Secret unless intentionally rotating credentials.
 ### Deploy and test
 
 ```sh
-kubectl apply -f todo_app/overlays/gke/backup-cronjob.yaml
+kubectl apply -f todo_app/backup/backup-cronjob.yaml
 kubectl -n project get cronjob todo-backup
 JOB_NAME="todo-backup-test-$(date +%s)"
 kubectl -n project create job --from=cronjob/todo-backup "$JOB_NAME"

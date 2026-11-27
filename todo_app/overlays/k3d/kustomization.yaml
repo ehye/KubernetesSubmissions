@@ -11,8 +11,6 @@ images:
     newTag: "4.8"
   - name: todo-backend
     newTag: "4.6"
-configurations:
-  - rollout-images.yaml
 patches:
   - target:
       kind: Deployment
