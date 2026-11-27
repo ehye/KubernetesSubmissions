@@ -3,7 +3,13 @@ name: Publish Todo environment
 on:
   push:
     branches: [main]
-    tags: ['**']
+    tags: ['todo-v*']
+    paths:
+      - 'todo_app/**'
+      - 'todo_backend/**'
+      - 'broadcaster/**'
+      - '.github/workflows/todo-environments.yaml'
+      - '.github/scripts/promote-todo.sh'
 
 jobs:
   publish:

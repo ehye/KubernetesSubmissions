@@ -8,6 +8,16 @@ cd gitops
 record="builds/$commit.json"
 promotion="promotions/$target.json"
 kustomization="overlays/$target/kustomization.yaml"
+# A release tag can arrive while staging is still publishing this commit.
+if [[ $target == production && ! -f $record ]]; then
+  for delay in {1..12}; do
+    echo "Waiting for staging to record $commit ($delay/12)"
+    sleep 10
+    git fetch --quiet origin main
+    git reset --hard FETCH_HEAD
+    [[ ! -f $record ]] || break
+  done
+fi
 for attempt in {1..5}; do
   git fetch --quiet origin main
   git reset --hard FETCH_HEAD
