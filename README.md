@@ -58,3 +58,7 @@
 - [4.8.](https://github.com/ehye/KubernetesSubmissions/tree/4.8/todo_app)
 - [4.9.](https://github.com/ehye/KubernetesSubmissions/tree/4.9/todo_app)
 - [4.10.](https://github.com/ehye/KubernetesSubmissions/tree/v4.10/todo_app) — [GitOps configuration](https://github.com/ehye/KubernetesSubmissions-gitops)
+
+### Chapter 6
+
+- [5.1.](https://github.com/ehye/KubernetesSubmissions/tree/5.1/dummy_site)

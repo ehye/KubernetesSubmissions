@@ -1,0 +1,28 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: dummysites.exercises.example.com
+spec:
+  group: exercises.example.com
+  scope: Namespaced
+  names:
+    kind: DummySite
+    singular: dummysite
+    plural: dummysites
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [website_url]
+              properties:
+                website_url:
+                  type: string
+                  maxLength: 2048
+                  pattern: '^https?://[^[:space:]]+$'
