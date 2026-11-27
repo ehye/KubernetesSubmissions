@@ -1,32 +1,32 @@
 #!/usr/bin/env bash
-# Fast-forward only. A slow build must not replace a newer successful promotion.
+# Run from the source checkout; gitops/ is the separate App-authenticated checkout.
 set -euo pipefail
-[[ $1 == staging || $1 == production ]]
-branch="deploy/$1"
-manifest=$(realpath "$2")
-commit=$(git rev-parse HEAD)
-dir=$(mktemp -d)
-git worktree add --quiet --detach "$dir" HEAD
-trap 'git worktree remove --force "$dir"' EXIT
+target=$1 commit=$2 images=$3
+[[ $target == staging || $target == production ]]
+[[ $commit =~ ^[a-f0-9]{40}$ && $GITHUB_RUN_NUMBER =~ ^[0-9]+$ ]]
+cd gitops
+record="builds/$commit.json"
+promotion="promotions/$target.json"
+kustomization="overlays/$target/kustomization.yaml"
 for attempt in {1..5}; do
-  if git ls-remote --exit-code --heads origin "refs/heads/$branch" >/dev/null; then
-    git fetch --quiet origin "refs/heads/$branch"
-    git -C "$dir" checkout --quiet --detach "$(git rev-parse FETCH_HEAD)"
-    previous=$(cat "$dir/run-number")
-    if (( previous >= GITHUB_RUN_NUMBER )); then
-      echo "Run $previous already deployed; skipping run $GITHUB_RUN_NUMBER"
-      exit 0
-    fi
-  else
-    [[ $? == 2 ]] || exit 1
-    git -C "$dir" switch --quiet --orphan "bootstrap-$1-$GITHUB_RUN_ID-$attempt"
+  git fetch --quiet origin main
+  git reset --hard FETCH_HEAD
+  previous=$(jq -er .run "$promotion")
+  if (( previous >= GITHUB_RUN_NUMBER )); then echo "Already promoted by run $previous"; exit 0; fi
+  # Only staging creates build records. Tags reuse the exact staged digests.
+  if [[ ! -f $record ]]; then
+    if [[ $target != staging ]]; then echo "No staged build for $commit" >&2; exit 1; fi
+    cp "$images" "$record"
   fi
-  mkdir -p "$dir/manifests"
-  cp "$manifest" "$dir/manifests/todo.yaml"
-  echo "$GITHUB_RUN_NUMBER" > "$dir/run-number"
-  git -C "$dir" add manifests/todo.yaml run-number
-  git -C "$dir" -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com \
-    commit --quiet -m "Deploy $1 from $commit"
-  if git push origin "$(git -C "$dir" rev-parse HEAD):refs/heads/$branch"; then exit 0; fi
+  jq -e 'sort_by(.name) | map(.name) == ["broadcaster","todo-app","todo-backend"]' "$record" >/dev/null
+  jq -e 'all(.[]; .newName == ("ghcr.io/ehye/" + .name) and (.digest | test("^sha256:[0-9a-f]{64}$")))' "$record" >/dev/null
+  jq --slurpfile images "$record" '.images = $images[0]' "$kustomization" > "$RUNNER_TEMP/kustomization.json"
+  mv "$RUNNER_TEMP/kustomization.json" "$kustomization"
+  kubectl kustomize "overlays/$target" >/dev/null
+  jq -n --arg commit "$commit" --argjson run "$GITHUB_RUN_NUMBER" '{commit:$commit,run:$run}' > "$promotion"
+  git add "$record" "$promotion" "$kustomization"
+  git -c user.name='todo-gitops-bot[bot]' -c user.email='todo-gitops-bot[bot]@users.noreply.github.com' \
+    commit -m "Promote $target from $commit"
+  if git push origin HEAD:main; then exit 0; fi
 done
 exit 1

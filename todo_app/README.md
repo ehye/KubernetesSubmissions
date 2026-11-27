@@ -2,81 +2,18 @@
 
 Run all commands from the repository root.
 
-## Staging and production (local k3d)
-
-| Source push | Argo CD Application | Namespace / desired-state branch | Broadcaster | Scheduled backup |
-|---|---|---|---|---|
-| `main` | `todo-app-staging` | `staging` / `deploy/staging` | Logs only | None |
-| Git tag (e.g. `4.9`) | `todo-app-production` | `production` / `deploy/production` | Discord | Daily at 02:00 UTC |
-
-The [workflow](../.github/workflows/todo-environments.yaml) checks out the triggering
-revision, publishes all three images to GHCR, and writes the rendered overlay
-with image **digests** to the corresponding deployment branch. Argo CD watches
-`manifests/` on that branch with automatic sync, prune and self-heal. A failed
-build does not advance it. Do not edit the generated branches directly.
-
-**Bootstrap on k3d:**
-
-1. Install the shared prerequisites (Argo CD, Argo Rollouts, `local-envoy`,
-   Prometheus, NATS in `nats`, and the `local-path` StorageClass). Both
-   environments allocate separate volumes, including for PostgreSQL.
-2. Provision Secrets **outside Argo CD** in the target namespaces:
-   `todo-postgres-secret` (`POSTGRES_PASSWORD`) in both; `broadcaster-discord`
-   (`DISCORD_WEBHOOK_URL`) and `todo-backup-gcs-secret` (`key.json`) only in
-   production. Set the backup bucket in `todo_app/backup/backup-cronjob.yaml`
-   or override it in the production overlay. Make sure k3d can pull the GHCR
-   packages (public visibility or externally configured pull credentials).
-3. Merge the workflow and overlays to `main` for staging. For production, push
-   a Git tag on a commit **containing the workflow**. After each first successful
-   publish, register that environment’s Application:
-
-   ```sh
-   kubectl --context=k3d-k3d-test apply -f cluster/argocd/environments/staging.yaml
-   kubectl --context=k3d-k3d-test apply -f cluster/argocd/environments/production.yaml
-   kubectl --context=k3d-k3d-test -n argocd get applications
-   ```
-
-To access both UIs without changing k3d host port mappings, run in separate terminals:
-
-```sh
-kubectl --context=k3d-k3d-test -n staging port-forward svc/todo-app-svc 18081:2345
-kubectl --context=k3d-k3d-test -n production port-forward svc/todo-app-svc 18082:2345
-```
-
-Create a Todo at `http://localhost:18081`, then inspect
-`kubectl --context=k3d-k3d-test -n staging logs -l app=broadcaster --prefix`.
-Events stay on `todos.staging.status`; the production subscribers use
-`todos.production.status`. The existing `project` installation is independent.
-
 ## Local k3d GitOps
 
-Argo CD syncs `todo_app/overlays/k3d` to `project`. The frontend uses a
-two-Pod canary with Prometheus restart checks. The same overlay manages the
-backend, PostgreSQL, reading CronJob, and `todo-local` Envoy Gateway.
-The existing `todo-postgres-secret` and `shared-data-pvc` are prerequisites.
-Install Argo CD, Argo Rollouts, Prometheus, and Envoy Gateway in the local cluster.
+The [GitOps repository](https://github.com/ehye/KubernetesSubmissions-gitops) owns the live Todo Kustomize configuration and [Argo CD Applications](https://github.com/ehye/KubernetesSubmissions-gitops/tree/main/argocd). All three Applications track GitOps `main`. Apply the Application manifests from that repository after provisioning their namespace Secrets.
 
-```sh
-docker build -t todo-app:4.8 todo_app
-docker build -t todo-backend:4.6 todo_backend
-k3d image import todo-app:4.8 todo-backend:4.6 -c k3d-test
-kubectl --context=k3d-k3d-test apply -f cluster/k3d-envoy.yaml
-kubectl --context=k3d-k3d-test apply --dry-run=server -k todo_app/overlays/k3d
-```
+| Source event | GitOps path | Behavior |
+|---|---|---|
+| Push to `main` | `overlays/staging` | Build frontend, backend and broadcaster; publish immutable digests and a build record for the source commit. |
+| Push a tag | `overlays/production` | Promote the tagged commit’s recorded staging digests. No rebuild; fails if the commit was never staged. |
 
-Once the overlay is on `main`, enable sync from that branch:
+The [promotion workflow](../.github/workflows/todo-environments.yaml) uses the source repo's `GITHUB_TOKEN` for GHCR and a short-lived GitHub App token for the GitOps push. Configure the repository variable `GITOPS_APP_CLIENT_ID` and secret `GITOPS_APP_PRIVATE_KEY`; install the App on the GitOps repo with Contents write access. CI does not need cluster credentials. Configuration-only changes go directly to the GitOps repo.
 
-```sh
-kubectl --context=k3d-k3d-test apply -f cluster/argocd/todo-app.yaml
-kubectl --context=k3d-k3d-test -n argocd get application todo-app
-```
-
-For updates, import a new image tag before changing `images`
-in the overlay and pushing the commit. Check `todo-app` in Argo CD, watch
-`kubectl argo rollouts get rollout todo-app-dep -n project --context=k3d-k3d-test`,
-and open <http://localhost:8081>. For migration from the frontend-only Application,
-disable pruning before switching paths; remove the old frontend Deployment
-only after verifying the Rollout serves requests.
+Staging logs notifications and runs no database backups. Production uses Discord and scheduled backups. The existing `project` installation keeps its imported local images at <http://localhost:8081>.
 
 The following sections describe the separate GKE setup.
 
