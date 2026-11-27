@@ -8,8 +8,10 @@ The [GitOps repository](https://github.com/ehye/KubernetesSubmissions-gitops) ow
 
 | Source event | GitOps path | Behavior |
 |---|---|---|
-| Push to `main` | `overlays/staging` | Build frontend, backend and broadcaster; publish immutable digests and a build record for the source commit. |
-| Push a tag | `overlays/production` | Promote the tagged commit’s recorded staging digests. No rebuild; fails if the commit was never staged. |
+| Todo change on `main` | `overlays/staging` | Changes under `todo_app/`, `todo_backend/`, `broadcaster/`, or to the promotion workflow/script build and record all three image digests. |
+| Tag a Todo change | `overlays/production` | Promote the tagged commit’s recorded staging digests without rebuilding. Wait up to two minutes for a concurrent staging build to publish its record. |
+
+Use the usual exercise tag (for example, `git tag 5.2 <staged-commit>` then `git push origin 5.2`). CI compares the tagged commit with its first parent: a Todo change requires a staging record for that exact commit; an unrelated change, such as DummySite in `5.1`, skips publication.
 
 The [promotion workflow](../.github/workflows/todo-environments.yaml) uses the source repo's `GITHUB_TOKEN` for GHCR and a short-lived GitHub App token for the GitOps push. Configure the repository variable `GITOPS_APP_CLIENT_ID` and secret `GITOPS_APP_PRIVATE_KEY`; install the App on the GitOps repo with Contents write access. CI does not need cluster credentials. Configuration-only changes go directly to the GitOps repo.
 

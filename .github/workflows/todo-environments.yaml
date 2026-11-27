@@ -4,10 +4,46 @@ on:
   push:
     branches: [main]
     tags: ['**']
+    paths:
+      - 'todo_app/**'
+      - 'todo_backend/**'
+      - 'broadcaster/**'
+      - '.github/workflows/todo-environments.yaml'
+      - '.github/scripts/promote-todo.sh'
 
 jobs:
-  publish:
+  scope:
     if: ${{ !github.event.deleted }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      publish: ${{ github.ref_type == 'branch' || steps.tag.outputs.changed == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+        if: github.ref_type == 'tag'
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # GitHub applies push.paths to branches, but not to tags.
+      - id: tag
+        if: github.ref_type == 'tag'
+        name: Check tagged commit for Todo changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=$(git rev-parse --verify --quiet HEAD^1 || git hash-object -t tree /dev/null)
+          if git diff --quiet "$base" HEAD -- todo_app/ todo_backend/ broadcaster/ \
+            .github/workflows/todo-environments.yaml .github/scripts/promote-todo.sh; then
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+          else
+            status=$?
+            [[ $status == 1 ]] || exit "$status"
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          fi
+  publish:
+    needs: scope
+    if: needs.scope.outputs.publish == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
