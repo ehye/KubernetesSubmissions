@@ -59,8 +59,6 @@
 - [4.9.](https://github.com/ehye/KubernetesSubmissions/tree/4.9/todo_app)
 - [4.10.](https://github.com/ehye/KubernetesSubmissions/tree/v4.10/todo_app) — [GitOps configuration](https://github.com/ehye/KubernetesSubmissions-gitops)
 
-For subsequent Todo releases, see the [Todo release instructions](todo_app/README.md). Only `todo-v*` tags deploy Todo to production.
-
 ### Chapter 6
 
 - [5.1.](https://github.com/ehye/KubernetesSubmissions/tree/5.1/dummy_site)
