@@ -1,0 +1,8 @@
+apiVersion: exercises.example.com/v1alpha1
+kind: DummySite
+metadata:
+  name: example
+  namespace: default
+spec:
+  # Use the article URL exactly: /wiki/Kubernetes works, but /wiki/Kubernetes/ returns 404.
+  website_url: https://en.wikipedia.org/wiki/Kubernetes

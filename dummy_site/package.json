@@ -1,0 +1,8 @@
+{
+  "name": "dummysite-controller",
+  "private": true,
+  "type": "module",
+  "scripts": { "start": "node src/controller.js", "test": "node --test" },
+  "dependencies": { "@kubernetes/client-node": "2.0.2", "cheerio": "1.2.0" },
+  "packageManager": "pnpm@12.16.1"
+}
